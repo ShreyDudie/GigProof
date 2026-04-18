@@ -1,10 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.platformValidators = exports.PlatformController = void 0;
-const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
-const prisma = new client_1.PrismaClient();
+const supabase_1 = require("../database/supabase");
+const helpers_1 = require("../database/helpers");
 class PlatformController {
+    static getParamId(value) {
+        return Array.isArray(value) ? value[0] : value || '';
+    }
     /**
      * Connect to a platform (OAuth simulation)
      */
@@ -28,14 +31,13 @@ class PlatformController {
                 });
                 return;
             }
-            // Mock OAuth flow - in production, this would redirect to platform's OAuth
             const mockAuthUrl = `https://${platform.toLowerCase()}.com/oauth/authorize?client_id=mock&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read_profile,read_earnings&response_type=code`;
             res.json({
                 success: true,
                 data: {
                     authUrl: mockAuthUrl,
                     platform,
-                    state: `state_${Math.random().toString(36).substr(2, 16)}`,
+                    state: `state_${Math.random().toString(36).substring(2, 16)}`,
                 },
             });
         }
@@ -52,7 +54,7 @@ class PlatformController {
      */
     static async callback(req, res) {
         try {
-            const { code, state, platform } = req.query;
+            const { code, platform } = req.query;
             const workerId = req.user?.id;
             if (!workerId || !code || !platform) {
                 res.status(400).json({
@@ -61,40 +63,61 @@ class PlatformController {
                 });
                 return;
             }
-            // Mock token exchange
-            const mockAccessToken = `mock_token_${Math.random().toString(36).substr(2, 16)}`;
-            // Create platform connection
-            const platformConnection = await prisma.platformConnection.upsert({
-                where: {
-                    workerId_platform: {
-                        workerId,
-                        platform: platform,
-                    },
-                },
-                update: {
-                    accessToken: mockAccessToken,
-                    connectedAt: new Date(),
-                    lastSyncAt: new Date(),
-                    status: 'SUCCESS',
-                },
-                create: {
-                    workerId,
-                    platform: platform,
-                    accessToken: mockAccessToken,
-                    connectedAt: new Date(),
-                    lastSyncAt: new Date(),
-                    status: 'SUCCESS',
-                },
-            });
-            // Trigger initial data sync
-            await this.syncPlatformData(platformConnection.id);
+            const mockAccessToken = `mock_token_${Math.random().toString(36).substring(2, 16)}`;
+            const platformName = platform;
+            const { data: existingPlatform, error: selectError } = await supabase_1.supabase
+                .from('platforms')
+                .select('*')
+                .eq('worker_id', workerId)
+                .eq('platform_name', platformName)
+                .single();
+            if (selectError && selectError.code !== 'PGRST116') {
+                throw selectError;
+            }
+            let platformRecord;
+            if (existingPlatform) {
+                const { data, error } = await supabase_1.supabase
+                    .from('platforms')
+                    .update({
+                    access_token: mockAccessToken,
+                    external_id: String(code).substring(0, 128),
+                    sync_status: 'PENDING',
+                    last_synced: new Date(),
+                })
+                    .eq('id', existingPlatform.id)
+                    .select()
+                    .single();
+                if (error)
+                    throw error;
+                platformRecord = data;
+            }
+            else {
+                const { data, error } = await supabase_1.supabase
+                    .from('platforms')
+                    .insert([{
+                        worker_id: workerId,
+                        platform_name: platformName,
+                        access_token: mockAccessToken,
+                        external_id: String(code).substring(0, 128),
+                        data_source: 'OFFICIAL_API',
+                        sync_status: 'PENDING',
+                        created_at: new Date(),
+                        updated_at: new Date(),
+                    }])
+                    .select()
+                    .single();
+                if (error)
+                    throw error;
+                platformRecord = data;
+            }
+            await this.syncPlatformData(platformRecord.id, platformName);
             res.json({
                 success: true,
-                message: `Successfully connected to ${platform}`,
+                message: `Successfully connected to ${platformName}`,
                 data: {
-                    connectionId: platformConnection.id,
-                    platform,
-                    connectedAt: platformConnection.connectedAt,
+                    connectionId: platformRecord.id,
+                    platform: platformName,
+                    connectedAt: platformRecord.created_at,
                 },
             });
         }
@@ -120,7 +143,7 @@ class PlatformController {
                 });
                 return;
             }
-            const { platformConnectionId } = req.params;
+            const platformConnectionId = this.getParamId(req.params.platformConnectionId);
             const workerId = req.user?.id;
             if (!workerId) {
                 res.status(401).json({
@@ -129,29 +152,19 @@ class PlatformController {
                 });
                 return;
             }
-            const connection = await prisma.platformConnection.findFirst({
-                where: {
-                    id: platformConnectionId,
-                    workerId,
-                },
-            });
-            if (!connection) {
+            const connection = await (0, helpers_1.findPlatformById)(platformConnectionId);
+            if (!connection || connection.worker_id !== workerId) {
                 res.status(404).json({
                     success: false,
                     error: 'Platform connection not found',
                 });
                 return;
             }
-            // Update sync status
-            await prisma.platformConnection.update({
-                where: { id: platformConnectionId },
-                data: {
-                    status: 'PENDING',
-                    lastSyncAt: new Date(),
-                },
+            await (0, helpers_1.updatePlatform)(platformConnectionId, {
+                sync_status: 'PENDING',
+                last_synced: new Date(),
             });
-            // Trigger sync job
-            await this.syncPlatformData(platformConnectionId);
+            await this.syncPlatformData(platformConnectionId, connection.platform_name);
             res.json({
                 success: true,
                 message: 'Sync initiated',
@@ -182,13 +195,10 @@ class PlatformController {
                 });
                 return;
             }
-            const connections = await prisma.platformConnection.findMany({
-                where: { workerId },
-                orderBy: { connectedAt: 'desc' },
-            });
+            const platforms = await (0, helpers_1.findPlatformsByWorker)(workerId);
             res.json({
                 success: true,
-                data: connections,
+                data: platforms,
             });
         }
         catch (error) {
@@ -223,21 +233,18 @@ class PlatformController {
                 });
                 return;
             }
-            // Mock OCR processing
             const mockOCRData = this.generateMockOCRData(platform);
-            // Create income records from OCR data
             for (const record of mockOCRData.incomeRecords) {
-                await prisma.incomeRecord.create({
-                    data: {
-                        workerId,
-                        source: platform,
-                        amount: record.amount,
-                        currency: record.currency,
-                        period: record.period,
-                        transactionRef: record.transactionRef,
-                        verified: false, // OCR data needs verification
-                        smsRef: `ocr_${Date.now()}`,
-                    },
+                await (0, helpers_1.createIncomeRecord)({
+                    worker_id: workerId,
+                    source: platform,
+                    amount: record.amount,
+                    currency: record.currency,
+                    period: record.period,
+                    transaction_ref: record.transactionRef,
+                    verified: false,
+                    sms_ref: `ocr_${Date.now()}`,
+                    created_at: new Date(),
                 });
             }
             res.json({
@@ -260,60 +267,83 @@ class PlatformController {
     /**
      * Private method to sync platform data
      */
-    static async syncPlatformData(connectionId) {
+    static async syncPlatformData(connectionId, platformName) {
         try {
-            const connection = await prisma.platformConnection.findUnique({
-                where: { id: connectionId },
-                include: { worker: true },
-            });
-            if (!connection)
-                return;
-            // Mock API calls to platform
-            const mockData = this.generateMockPlatformData(connection.platform);
-            // Create income records
-            for (const record of mockData.incomeRecords) {
-                await prisma.incomeRecord.upsert({
-                    where: {
-                        workerId_source_period: {
-                            workerId: connection.workerId,
-                            source: connection.platform,
-                            period: record.period,
-                        },
-                    },
-                    update: {
-                        amount: record.amount,
-                        verified: true,
-                    },
-                    create: {
-                        workerId: connection.workerId,
-                        source: connection.platform,
-                        amount: record.amount,
-                        currency: record.currency,
-                        period: record.period,
-                        transactionRef: record.transactionRef,
-                        verified: true,
-                    },
+            const connection = await (0, helpers_1.findPlatformById)(connectionId);
+            if (!connection) {
+                throw new Error('Platform connection not found');
+            }
+            const liveData = await this.fetchRealPlatformData(platformName, connection.access_token);
+            const syncData = liveData || this.generateMockPlatformData(platformName);
+            for (const record of syncData.incomeRecords) {
+                await (0, helpers_1.createIncomeRecord)({
+                    worker_id: connection.worker_id,
+                    source: platformName,
+                    amount: record.amount,
+                    currency: record.currency,
+                    period: record.period,
+                    transaction_ref: record.transactionRef,
+                    verified: true,
+                    sms_ref: `sync_${Date.now()}`,
+                    created_at: new Date(),
                 });
             }
-            // Update connection status
-            await prisma.platformConnection.update({
-                where: { id: connectionId },
-                data: {
-                    status: 'SUCCESS',
-                    lastSyncAt: new Date(),
-                },
+            await (0, helpers_1.updatePlatform)(connectionId, {
+                sync_status: 'SUCCESS',
+                last_synced: new Date(),
+                raw_data_hash: `hash_${Date.now()}`,
             });
         }
         catch (error) {
             console.error('Sync platform data error:', error);
-            // Update connection status to failed
-            await prisma.platformConnection.update({
-                where: { id: connectionId },
-                data: {
-                    status: 'FAILED',
-                    lastSyncAt: new Date(),
+            await (0, helpers_1.updatePlatform)(connectionId, {
+                sync_status: 'FAILED',
+                last_synced: new Date(),
+            });
+        }
+    }
+    static async fetchRealPlatformData(platformName, accessToken) {
+        const endpointMap = {
+            UBER: process.env.UBER_EARNINGS_API,
+            OLA: process.env.OLA_EARNINGS_API,
+            SWIGGY: process.env.SWIGGY_EARNINGS_API,
+            ZOMATO: process.env.ZOMATO_EARNINGS_API,
+            URBAN_COMPANY: process.env.URBAN_COMPANY_EARNINGS_API,
+            UPWORK: process.env.UPWORK_EARNINGS_API,
+            FIVERR: process.env.FIVERR_EARNINGS_API,
+            LINKEDIN: process.env.LINKEDIN_EARNINGS_API,
+        };
+        const endpoint = endpointMap[platformName];
+        if (!endpoint) {
+            return null;
+        }
+        try {
+            const response = await fetch(endpoint, {
+                method: 'GET',
+                headers: {
+                    Authorization: accessToken ? `Bearer ${accessToken}` : '',
+                    Accept: 'application/json',
                 },
             });
+            if (!response.ok) {
+                return null;
+            }
+            const data = await response.json();
+            if (!Array.isArray(data?.incomeRecords)) {
+                return null;
+            }
+            return {
+                incomeRecords: data.incomeRecords.map((record) => ({
+                    amount: Number(record.amount || 0),
+                    currency: record.currency || 'INR',
+                    period: record.period || new Date().toISOString().slice(0, 10),
+                    transactionRef: String(record.transactionRef || `${platformName}_${Date.now()}`),
+                })),
+            };
+        }
+        catch (error) {
+            console.warn(`Real API sync failed for ${platformName}; falling back to mock sync.`);
+            return null;
         }
     }
     /**
@@ -322,7 +352,6 @@ class PlatformController {
     static generateMockPlatformData(platform) {
         const baseAmount = platform === 'UBER' ? 8000 : platform === 'SWIGGY' ? 6000 : 10000;
         const records = [];
-        // Generate last 3 months of data
         for (let i = 0; i < 6; i++) {
             const date = new Date();
             date.setMonth(date.getMonth() - i);
@@ -331,7 +360,7 @@ class PlatformController {
                 amount: baseAmount + Math.floor(Math.random() * 2000),
                 currency: 'INR',
                 period,
-                transactionRef: `${platform.toUpperCase()}_${Math.random().toString(36).substr(2, 8)}`,
+                transactionRef: `${platform.toUpperCase()}_${Math.random().toString(36).substring(2, 8)}`,
             });
         }
         return {

@@ -4,70 +4,55 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OfflineCredentialService = void 0;
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const qrcode_1 = __importDefault(require("qrcode"));
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const supabase_1 = require("../database/supabase");
 class OfflineCredentialService {
     static async generateOfflineCard(workerId) {
-        // Fetch worker data
-        const worker = await prisma.workerProfile.findUnique({
-            where: { id: workerId },
-            include: {
-                user: true,
-                platforms: {
-                    where: { syncStatus: 'SUCCESS' },
-                },
-                credentials: {
-                    where: {
-                        type: { in: ['INCOME', 'RATING'] },
-                        tier: { in: ['GOLD', 'SILVER'] },
-                    },
-                    orderBy: { tier: 'desc' },
-                    take: 5,
-                },
-            },
-        });
-        if (!worker) {
+        const { data: worker, error } = await supabase_1.supabase
+            .from('worker_profiles')
+            .select('*, user:users(*), platforms(*), credentials(*)')
+            .eq('id', workerId)
+            .single();
+        if (error || !worker) {
             throw new Error('Worker not found');
         }
-        // Compute income range from credentials
-        const incomeCred = worker.credentials.find(c => c.type === 'INCOME');
+        const credentials = (worker.credentials || []).filter((c) => ['INCOME', 'RATING'].includes(c.type) && ['GOLD', 'SILVER'].includes(c.tier));
+        const incomeCred = credentials.find((c) => c.type === 'INCOME');
         const incomeRange = this.computeIncomeRange(incomeCred);
-        // Compute average rating
-        const ratingCred = worker.credentials.find(c => c.type === 'RATING');
+        const ratingCred = credentials.find((c) => c.type === 'RATING');
         const avgRating = ratingCred?.metadata?.avgRating || 4.0;
-        // Get platform names
-        const platforms = worker.platforms.map(p => p.platformName.toLowerCase());
+        const platforms = (worker.platforms || []).map((p) => (p.platform_name || p.platformName || '').toLowerCase());
         const payload = {
-            sub: worker.user.did || `did:worker:${workerId}`,
+            sub: worker.user?.did || `did:worker:${workerId}`,
             name: this.maskName(worker.fullName),
             score: worker.overallScore || 0,
             incomeRange,
             rating: avgRating,
             platforms,
-            kycVerified: worker.user.kycStatus === 'VERIFIED',
+            kycVerified: worker.user?.kycStatus === 'VERIFIED',
             issuedAt: new Date(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         };
         // Sign JWT
-        const jwt = jwt.sign(payload, this.JWT_SECRET, {
+        const token = jsonwebtoken_1.default.sign(payload, this.JWT_SECRET, {
             issuer: this.ISSUER_DID,
             expiresIn: '30d',
         });
         // Generate QR code
-        const qrDataUrl = await qrcode_1.default.toDataURL(jwt, {
+        const qrDataUrl = await qrcode_1.default.toDataURL(token, {
             width: 256,
             margin: 2,
         });
         return {
             qrDataUrl,
-            jwt,
+            jwt: token,
             expiresAt: payload.expiresAt,
         };
     }
-    static async verifyOfflineCard(jwt) {
+    static async verifyOfflineCard(token) {
         try {
-            const decoded = jwt.verify(jwt, this.JWT_SECRET);
+            const decoded = jsonwebtoken_1.default.verify(token, this.JWT_SECRET);
             // Check if expired
             if (new Date() > new Date(decoded.expiresAt)) {
                 throw new Error('Credential expired');

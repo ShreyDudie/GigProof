@@ -4,12 +4,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
-const client_1 = require("@prisma/client");
+const crypto_1 = __importDefault(require("crypto"));
+const helpers_1 = require("../database/helpers");
 const router = express_1.default.Router();
-const prisma = new client_1.PrismaClient();
+function isValidWebhookSignature(payload, headerSignature) {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (!appSecret || !headerSignature) {
+        return true;
+    }
+    const digest = crypto_1.default
+        .createHmac('sha256', appSecret)
+        .update(JSON.stringify(payload))
+        .digest('hex');
+    const expected = `sha256=${digest}`;
+    return crypto_1.default.timingSafeEqual(Buffer.from(expected), Buffer.from(headerSignature));
+}
 // Mock WhatsApp Business API webhook
 router.post('/webhook', async (req, res) => {
     try {
+        const signature = req.header('x-hub-signature-256');
+        if (!isValidWebhookSignature(req.body, signature)) {
+            return res.status(401).send('Invalid signature');
+        }
         const { entry } = req.body;
         if (!entry || !entry[0]?.changes?.[0]?.value?.messages) {
             return res.status(200).send('OK'); // WhatsApp expects 200
@@ -24,6 +40,19 @@ router.post('/webhook', async (req, res) => {
         console.error('WhatsApp webhook error:', error);
         res.status(500).send('Internal server error');
     }
+});
+router.get('/webhook/test', async (_req, res) => {
+    await (0, helpers_1.createWhatsAppLog)({
+        from: 'system',
+        message: 'Webhook deployment test ping',
+        direction: 'INBOUND',
+        timestamp: new Date(),
+    });
+    res.json({
+        success: true,
+        message: 'WhatsApp webhook route is live',
+        timestamp: new Date().toISOString(),
+    });
 });
 // WhatsApp webhook verification
 router.get('/webhook', (req, res) => {
@@ -44,13 +73,11 @@ async function processMessage(message) {
         return;
     let response = '';
     // Log incoming message
-    await prisma.whatsAppLog.create({
-        data: {
-            from,
-            message: message.text?.body || '',
-            direction: 'INBOUND',
-            timestamp: new Date(),
-        },
+    await (0, helpers_1.createWhatsAppLog)({
+        from,
+        message: message.text?.body || '',
+        direction: 'INBOUND',
+        timestamp: new Date(),
     });
     // Process commands
     if (text.includes('register') || text.includes('शुरू करें')) {
@@ -110,13 +137,11 @@ Reply HELP or मदद for available commands.`;
     // Send response (mock - in production, use WhatsApp API)
     console.log(`WhatsApp response to ${from}: ${response}`);
     // Log outgoing message
-    await prisma.whatsAppLog.create({
-        data: {
-            from,
-            message: response,
-            direction: 'OUTBOUND',
-            timestamp: new Date(),
-        },
+    await (0, helpers_1.createWhatsAppLog)({
+        from,
+        message: response,
+        direction: 'OUTBOUND',
+        timestamp: new Date(),
     });
 }
 exports.default = router;

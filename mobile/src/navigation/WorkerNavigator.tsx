@@ -1,21 +1,16 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text } from 'react-native';
-import { useTranslation } from 'react-i18next';
-
-// Placeholder screens - will be implemented
-const PlaceholderScreen = ({ title }: { title: string }) => (
-  <View className="flex-1 justify-center items-center">
-    <Text className="text-xl">{title}</Text>
-  </View>
-);
-
-const WorkerHomeScreen = () => <PlaceholderScreen title="Worker Home" />;
-const IdentityScreen = () => <PlaceholderScreen title="Identity" />;
-const EarningsScreen = () => <PlaceholderScreen title="Earnings" />;
-const ShareScreen = () => <PlaceholderScreen title="Share" />;
-const ProfileScreen = () => <PlaceholderScreen title="Profile" />;
+import { Text } from 'react-native';
+import HomeDashboardScreen from '../screens/worker/HomeDashboardScreen';
+import IdentityScreen from '../screens/worker/IdentityScreen';
+import EarningsScreen from '../screens/worker/EarningsScreen';
+import ShareScreen from '../screens/worker/ShareScreen';
+import ProfileScreen from '../screens/worker/ProfileScreen';
+import OnboardingKycScreen, { WorkerOnboardingStackParamList } from '../screens/worker/OnboardingKycScreen';
+import OnboardingPlatformScreen from '../screens/worker/OnboardingPlatformScreen';
+import OnboardingProfileScreen from '../screens/worker/OnboardingProfileScreen';
+import { useAppStore } from '../stores/appStore';
 
 export type WorkerTabParamList = {
   Home: undefined;
@@ -26,10 +21,9 @@ export type WorkerTabParamList = {
 };
 
 const Tab = createBottomTabNavigator<WorkerTabParamList>();
+const Stack = createNativeStackNavigator<WorkerOnboardingStackParamList>();
 
 function WorkerTabNavigator() {
-  const { t } = useTranslation();
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -42,68 +36,48 @@ function WorkerTabNavigator() {
     >
       <Tab.Screen
         name="Home"
-        component={WorkerHomeScreen}
-        options={{
-          tabBarLabel: t('home.scoreLabel'),
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '🏠' : '🏡'}</Text>
-          ),
-        }}
+        component={HomeDashboardScreen}
+        options={{ tabBarIcon: ({ focused }: { focused: boolean }) => <Text style={{ fontSize: 18 }}>{focused ? '🏠' : '🏡'}</Text> }}
       />
       <Tab.Screen
         name="Identity"
         component={IdentityScreen}
-        options={{
-          tabBarLabel: t('identity.credentialTypes.identity'),
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '🛡️' : '⚔️'}</Text>
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }: { focused: boolean }) => <Text style={{ fontSize: 18 }}>{focused ? '🛡️' : '📇'}</Text> }}
       />
       <Tab.Screen
         name="Earnings"
         component={EarningsScreen}
-        options={{
-          tabBarLabel: t('earnings.avgMonthly'),
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '📈' : '📊'}</Text>
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }: { focused: boolean }) => <Text style={{ fontSize: 18 }}>{focused ? '📈' : '📊'}</Text> }}
       />
       <Tab.Screen
         name="Share"
         component={ShareScreen}
-        options={{
-          tabBarLabel: t('share.heading'),
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '📱' : '📲'}</Text>
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }: { focused: boolean }) => <Text style={{ fontSize: 18 }}>{focused ? '🔗' : '📤'}</Text> }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{
-          tabBarLabel: t('profile.connectedPlatforms'),
-          tabBarIcon: ({ focused }) => (
-            <Text style={{ fontSize: 20 }}>{focused ? '👤' : '👥'}</Text>
-          ),
-        }}
+        options={{ tabBarIcon: ({ focused }: { focused: boolean }) => <Text style={{ fontSize: 18 }}>{focused ? '👤' : '👥'}</Text> }}
       />
     </Tab.Navigator>
   );
 }
 
-const Stack = createNativeStackNavigator();
-
 export default function WorkerNavigator() {
+  const onboardingComplete = useAppStore((s) => s.onboardingComplete);
+
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen name="WorkerTabs" component={WorkerTabNavigator} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {!onboardingComplete ? (
+        <>
+          <Stack.Screen name="OnboardingKyc" component={OnboardingKycScreen} />
+          <Stack.Screen name="OnboardingPlatform" component={OnboardingPlatformScreen} />
+          <Stack.Screen name="OnboardingProfile" component={OnboardingProfileScreen} />
+          <Stack.Screen name="WorkerTabs" component={WorkerTabNavigator} />
+        </>
+      ) : (
+        <Stack.Screen name="WorkerTabs" component={WorkerTabNavigator} />
+      )}
     </Stack.Navigator>
   );
 }

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateQuery = exports.validateParams = exports.validateBody = void 0;
+exports.validateRequest = exports.validateQuery = exports.validateParams = exports.validateBody = void 0;
+const express_validator_1 = require("express-validator");
 const zod_1 = require("zod");
 const validateBody = (schema) => {
     return (req, res, next) => {
@@ -13,7 +14,7 @@ const validateBody = (schema) => {
                 return res.status(400).json({
                     success: false,
                     error: 'Validation failed',
-                    details: error.errors,
+                    details: error.issues,
                 });
             }
             next(error);
@@ -32,7 +33,7 @@ const validateParams = (schema) => {
                 return res.status(400).json({
                     success: false,
                     error: 'Parameter validation failed',
-                    details: error.errors,
+                    details: error.issues,
                 });
             }
             next(error);
@@ -51,7 +52,7 @@ const validateQuery = (schema) => {
                 return res.status(400).json({
                     success: false,
                     error: 'Query validation failed',
-                    details: error.errors,
+                    details: error.issues,
                 });
             }
             next(error);
@@ -59,4 +60,16 @@ const validateQuery = (schema) => {
     };
 };
 exports.validateQuery = validateQuery;
+const validateRequest = (req, res, next) => {
+    const errors = (0, express_validator_1.validationResult)(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({
+            success: false,
+            error: 'Validation failed',
+            details: errors.array(),
+        });
+    }
+    next();
+};
+exports.validateRequest = validateRequest;
 //# sourceMappingURL=validation.js.map

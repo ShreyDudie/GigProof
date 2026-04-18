@@ -1,13 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.incomeValidators = exports.IncomeController = void 0;
-const client_1 = require("prisma/client");
 const express_validator_1 = require("express-validator");
-const prisma = new client_1.PrismaClient();
+const supabase_1 = require("../database/supabase");
+const helpers_1 = require("../database/helpers");
 class IncomeController {
-    /**
-     * Get worker's income records
-     */
+    static getParamId(value) {
+        return Array.isArray(value) ? value[0] : value || '';
+    }
     static async getIncomeRecords(req, res) {
         try {
             const workerId = req.user?.id;
@@ -19,30 +19,22 @@ class IncomeController {
                 });
                 return;
             }
-            const where = { workerId };
-            if (source) {
-                where.source = source;
-            }
-            if (verified !== undefined) {
-                where.verified = verified === 'true';
-            }
-            if (startDate || endDate) {
-                where.createdAt = {};
-                if (startDate) {
-                    where.createdAt.gte = new Date(startDate);
-                }
-                if (endDate) {
-                    where.createdAt.lte = new Date(endDate);
-                }
-            }
-            const incomeRecords = await prisma.incomeRecord.findMany({
-                where,
-                orderBy: { createdAt: 'desc' },
-            });
-            // Calculate summary statistics
+            let query = supabase_1.supabase.from('income_records').select('*').eq('worker_id', workerId).order('created_at', { ascending: false });
+            if (source)
+                query = query.eq('source', source);
+            if (verified !== undefined)
+                query = query.eq('verified', verified === 'true');
+            if (startDate)
+                query = query.gte('created_at', new Date(startDate));
+            if (endDate)
+                query = query.lte('created_at', new Date(endDate));
+            const { data: incomeRecordsData, error } = await query;
+            if (error)
+                throw error;
+            const incomeRecords = incomeRecordsData ?? [];
             const totalIncome = incomeRecords.reduce((sum, rec) => sum + rec.amount, 0);
             const averageMonthly = incomeRecords.length > 0 ? totalIncome / incomeRecords.length : 0;
-            const verifiedRecords = incomeRecords.filter(rec => rec.verified);
+            const verifiedRecords = incomeRecords.filter((rec) => rec.verified);
             res.json({
                 success: true,
                 data: {
@@ -52,7 +44,7 @@ class IncomeController {
                         verifiedRecords: verifiedRecords.length,
                         totalIncome,
                         averageMonthly,
-                        sources: [...new Set(incomeRecords.map(r => r.source))],
+                        sources: [...new Set(incomeRecords.map((r) => r.source))],
                     },
                 },
             });
@@ -65,9 +57,6 @@ class IncomeController {
             });
         }
     }
-    /**
-     * Add manual income record
-     */
     static async addIncomeRecord(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -88,14 +77,15 @@ class IncomeController {
                 });
                 return;
             }
-            // Check for duplicate transaction reference
             if (transactionRef) {
-                const existing = await prisma.incomeRecord.findFirst({
-                    where: {
-                        workerId,
-                        transactionRef,
-                    },
-                });
+                const { data: existing, error: existingError } = await supabase_1.supabase
+                    .from('income_records')
+                    .select('*')
+                    .eq('worker_id', workerId)
+                    .eq('transaction_ref', transactionRef)
+                    .single();
+                if (existingError && existingError.code !== 'PGRST116')
+                    throw existingError;
                 if (existing) {
                     res.status(400).json({
                         success: false,
@@ -104,16 +94,16 @@ class IncomeController {
                     return;
                 }
             }
-            const incomeRecord = await prisma.incomeRecord.create({
-                data: {
-                    workerId,
-                    source,
-                    amount,
-                    currency: currency || 'INR',
-                    period,
-                    transactionRef,
-                    verified: false, // Manual entries need verification
-                },
+            const incomeRecord = await (0, helpers_1.createIncomeRecord)({
+                worker_id: workerId,
+                source,
+                amount,
+                currency: currency || 'INR',
+                period,
+                transaction_ref: transactionRef,
+                verified: false,
+                created_at: new Date(),
+                updated_at: new Date(),
             });
             res.status(201).json({
                 success: true,
@@ -129,9 +119,6 @@ class IncomeController {
             });
         }
     }
-    /**
-     * Update income record
-     */
     static async updateIncomeRecord(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -143,7 +130,7 @@ class IncomeController {
                 });
                 return;
             }
-            const { recordId } = req.params;
+            const recordId = this.getParamId(req.params.recordId);
             const { amount, verified } = req.body;
             const workerId = req.user?.id;
             if (!workerId) {
@@ -153,13 +140,8 @@ class IncomeController {
                 });
                 return;
             }
-            const existingRecord = await prisma.incomeRecord.findFirst({
-                where: {
-                    id: recordId,
-                    workerId,
-                },
-            });
-            if (!existingRecord) {
+            const existingRecord = await (0, helpers_1.findIncomeRecordById)(recordId);
+            if (!existingRecord || existingRecord.worker_id !== workerId) {
                 res.status(404).json({
                     success: false,
                     error: 'Income record not found',
@@ -167,16 +149,12 @@ class IncomeController {
                 return;
             }
             const updateData = {};
-            if (amount !== undefined) {
+            if (amount !== undefined)
                 updateData.amount = amount;
-            }
-            if (verified !== undefined) {
+            if (verified !== undefined)
                 updateData.verified = verified;
-            }
-            const updatedRecord = await prisma.incomeRecord.update({
-                where: { id: recordId },
-                data: updateData,
-            });
+            updateData.updated_at = new Date();
+            const updatedRecord = await (0, helpers_1.updateIncomeRecord)(recordId, updateData);
             res.json({
                 success: true,
                 message: 'Income record updated successfully',
@@ -191,9 +169,6 @@ class IncomeController {
             });
         }
     }
-    /**
-     * Delete income record
-     */
     static async deleteIncomeRecord(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -205,7 +180,7 @@ class IncomeController {
                 });
                 return;
             }
-            const { recordId } = req.params;
+            const recordId = this.getParamId(req.params.recordId);
             const workerId = req.user?.id;
             if (!workerId) {
                 res.status(401).json({
@@ -214,22 +189,15 @@ class IncomeController {
                 });
                 return;
             }
-            const existingRecord = await prisma.incomeRecord.findFirst({
-                where: {
-                    id: recordId,
-                    workerId,
-                },
-            });
-            if (!existingRecord) {
+            const existingRecord = await (0, helpers_1.findIncomeRecordById)(recordId);
+            if (!existingRecord || existingRecord.worker_id !== workerId) {
                 res.status(404).json({
                     success: false,
                     error: 'Income record not found',
                 });
                 return;
             }
-            await prisma.incomeRecord.delete({
-                where: { id: recordId },
-            });
+            await (0, helpers_1.deleteIncomeRecord)(recordId);
             res.json({
                 success: true,
                 message: 'Income record deleted successfully',
@@ -243,13 +211,9 @@ class IncomeController {
             });
         }
     }
-    /**
-     * Get income analytics
-     */
     static async getIncomeAnalytics(req, res) {
         try {
             const workerId = req.user?.id;
-            const { timeframe } = req.query; // 'month', 'quarter', 'year'
             if (!workerId) {
                 res.status(401).json({
                     success: false,
@@ -257,10 +221,14 @@ class IncomeController {
                 });
                 return;
             }
-            const incomeRecords = await prisma.incomeRecord.findMany({
-                where: { workerId },
-                orderBy: { createdAt: 'asc' },
-            });
+            const { data: incomeRecordsData, error } = await supabase_1.supabase
+                .from('income_records')
+                .select('*')
+                .eq('worker_id', workerId)
+                .order('created_at', { ascending: true });
+            if (error)
+                throw error;
+            const incomeRecords = incomeRecordsData ?? [];
             if (incomeRecords.length === 0) {
                 res.json({
                     success: true,
@@ -277,10 +245,8 @@ class IncomeController {
                 });
                 return;
             }
-            // Calculate analytics
             const totalIncome = incomeRecords.reduce((sum, rec) => sum + rec.amount, 0);
             const averageMonthly = totalIncome / incomeRecords.length;
-            // Calculate growth rate (comparing first half vs second half)
             const midpoint = Math.floor(incomeRecords.length / 2);
             const firstHalf = incomeRecords.slice(0, midpoint);
             const secondHalf = incomeRecords.slice(midpoint);
@@ -291,27 +257,19 @@ class IncomeController {
                 ? secondHalf.reduce((sum, rec) => sum + rec.amount, 0) / secondHalf.length
                 : 0;
             const growthRate = firstHalfAvg > 0 ? ((secondHalfAvg - firstHalfAvg) / firstHalfAvg) * 100 : 0;
-            // Calculate consistency (coefficient of variation)
-            const amounts = incomeRecords.map(rec => rec.amount);
+            const amounts = incomeRecords.map((rec) => rec.amount);
             const mean = amounts.reduce((a, b) => a + b, 0) / amounts.length;
             const variance = amounts.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / amounts.length;
             const stdDev = Math.sqrt(variance);
             const consistencyIndex = mean > 0 ? (1 - (stdDev / mean)) * 100 : 0;
-            // Find best and worst months
             const monthlyTotals = incomeRecords.reduce((acc, rec) => {
-                const month = rec.period.slice(0, 7); // YYYY-MM
+                const month = rec.period.slice(0, 7);
                 acc[month] = (acc[month] || 0) + rec.amount;
                 return acc;
             }, {});
             const sortedMonths = Object.entries(monthlyTotals).sort(([, a], [, b]) => b - a);
-            const bestMonth = sortedMonths[0] ? {
-                period: sortedMonths[0][0],
-                amount: sortedMonths[0][1],
-            } : null;
-            const worstMonth = sortedMonths[sortedMonths.length - 1] ? {
-                period: sortedMonths[sortedMonths.length - 1][0],
-                amount: sortedMonths[sortedMonths.length - 1][1],
-            } : null;
+            const bestMonth = sortedMonths[0] ? { period: sortedMonths[0][0], amount: sortedMonths[0][1] } : null;
+            const worstMonth = sortedMonths[sortedMonths.length - 1] ? { period: sortedMonths[sortedMonths.length - 1][0], amount: sortedMonths[sortedMonths.length - 1][1] } : null;
             res.json({
                 success: true,
                 data: {
@@ -323,7 +281,7 @@ class IncomeController {
                         bestMonth,
                         worstMonth,
                         totalRecords: incomeRecords.length,
-                        verifiedRecords: incomeRecords.filter(r => r.verified).length,
+                        verifiedRecords: incomeRecords.filter((r) => r.verified).length,
                     },
                 },
             });
@@ -336,9 +294,6 @@ class IncomeController {
             });
         }
     }
-    /**
-     * Verify income record (admin/lender function)
-     */
     static async verifyIncomeRecord(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -350,7 +305,7 @@ class IncomeController {
                 });
                 return;
             }
-            const { recordId } = req.params;
+            const recordId = this.getParamId(req.params.recordId);
             const { verified } = req.body;
             const userId = req.user?.id;
             const userRole = req.user?.role;
@@ -361,7 +316,6 @@ class IncomeController {
                 });
                 return;
             }
-            // Only admins and lenders can verify records
             if (!['ADMIN', 'LENDER'].includes(userRole || '')) {
                 res.status(403).json({
                     success: false,
@@ -369,9 +323,7 @@ class IncomeController {
                 });
                 return;
             }
-            const record = await prisma.incomeRecord.findUnique({
-                where: { id: recordId },
-            });
+            const record = await (0, helpers_1.findIncomeRecordById)(recordId);
             if (!record) {
                 res.status(404).json({
                     success: false,
@@ -379,18 +331,16 @@ class IncomeController {
                 });
                 return;
             }
-            const updatedRecord = await prisma.incomeRecord.update({
-                where: { id: recordId },
-                data: { verified },
+            const updatedRecord = await (0, helpers_1.updateIncomeRecord)(recordId, {
+                verified,
+                updated_at: new Date(),
             });
-            // Log verification action
-            await prisma.consentLog.create({
-                data: {
-                    workerId: record.workerId,
-                    action: verified ? 'VIEWED' : 'REVOKED', // Using existing actions
-                    actorId: userId,
-                    scope: ['income_verification'],
-                },
+            await (0, helpers_1.createConsentLog)({
+                worker_id: record.worker_id,
+                action: verified ? 'VIEWED' : 'REVOKED',
+                actor_id: userId,
+                scope: ['income_verification'],
+                timestamp: new Date(),
             });
             res.json({
                 success: true,
@@ -408,12 +358,11 @@ class IncomeController {
     }
 }
 exports.IncomeController = IncomeController;
-// Validation rules
 exports.incomeValidators = {
     addIncomeRecord: [
         (0, express_validator_1.body)('source').isString().notEmpty().withMessage('Source is required'),
         (0, express_validator_1.body)('amount').isFloat({ min: 0 }).withMessage('Amount must be a positive number'),
-        (0, express_validator_1.body)('period').isString().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Period must be in YYYY-MM-DD format'),
+        (0, express_validator_1.body)('period').isString().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/).withMessage('Period must be in YYYY-MM-DD format'),
         (0, express_validator_1.body)('transactionRef').optional().isString().withMessage('Transaction reference must be a string'),
     ],
     updateIncomeRecord: [

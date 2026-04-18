@@ -1,280 +1,178 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyValidators = exports.VerifyController = void 0;
-const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
+const supabase_1 = require("../database/supabase");
+const helpers_1 = require("../database/helpers");
 const behavioralDNA_1 = require("../services/behavioralDNA");
 const fraudDetection_1 = require("../services/fraudDetection");
-const prisma = new client_1.PrismaClient();
 class VerifyController {
-    /**
-     * Verify worker data for lender
-     */
     static async verifyWorker(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
             if (!errors.isEmpty()) {
-                res.status(400).json({
-                    success: false,
-                    error: 'Validation failed',
-                    details: errors.array(),
-                });
+                res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
                 return;
             }
             const { workerId, accessToken } = req.query;
-            const lenderId = req.user?.id;
-            if (!lenderId) {
-                res.status(401).json({
-                    success: false,
-                    error: 'Unauthorized',
-                });
+            const tokenRecord = await (0, helpers_1.findAccessRequestByToken)(String(accessToken));
+            const tokenMatchesWorker = tokenRecord && (tokenRecord.worker?.user_id === workerId || tokenRecord.worker?.id === workerId);
+            if (!tokenMatchesWorker) {
+                res.status(403).json({ success: false, error: 'Invalid or expired access token' });
                 return;
             }
-            // Validate access token
-            const accessRequest = await prisma.accessRequest.findFirst({
-                where: {
-                    workerId: workerId,
-                    lenderId,
-                    token: accessToken,
-                    status: 'APPROVED',
-                    expiresAt: {
-                        gt: new Date(),
-                    },
-                },
-            });
-            if (!accessRequest) {
-                res.status(403).json({
-                    success: false,
-                    error: 'Invalid or expired access token',
-                });
+            let workerProfile = await (0, helpers_1.findWorkerProfile)(String(workerId));
+            if (!workerProfile) {
+                const { data, error } = await supabase_1.supabase
+                    .from('worker_profiles')
+                    .select('*')
+                    .eq('id', String(workerId))
+                    .single();
+                if (error && error.code !== 'PGRST116')
+                    throw error;
+                workerProfile = data;
+            }
+            if (!workerProfile) {
+                res.status(404).json({ success: false, error: 'Worker not found' });
                 return;
             }
-            // Get worker data
-            const worker = await prisma.workerProfile.findUnique({
-                where: { userId: workerId },
-                include: {
-                    credentials: {
-                        where: { revoked: false },
-                    },
-                    incomeRecords: {
-                        where: { verified: true },
-                    },
-                    user: {
-                        select: {
-                            phone: true,
-                        },
-                    },
-                },
-            });
-            if (!worker) {
-                res.status(404).json({
-                    success: false,
-                    error: 'Worker not found',
-                });
-                return;
-            }
-            // Compute behavioral DNA
-            const behavioralDNA = await behavioralDNA_1.BehavioralDNAService.computeForWorker(worker.userId);
-            // Get fraud analysis
-            const fraudAnalysis = await fraudDetection_1.FraudDetectionService.analyzeAccessPatterns(worker.userId);
-            // Filter data based on granted scope
+            const [credentials, incomeRecords, behavioralDNA, fraudAnalysis] = await Promise.all([
+                (0, helpers_1.findCredentialsByWorker)(workerProfile.id),
+                (0, helpers_1.findIncomeByWorker)(workerProfile.id),
+                behavioralDNA_1.BehavioralDNAService.computeForWorker(workerProfile.user_id),
+                fraudDetection_1.FraudDetectionService.analyzeAccessPatterns(workerProfile.id),
+            ]);
+            const grantedScope = tokenRecord.scope_granted || [];
             const verifiedData = {
-                workerId: worker.userId,
+                workerId: workerProfile.user_id,
                 basicInfo: {
-                    fullName: worker.fullName,
-                    kycStatus: worker.kycStatus,
-                    verified: worker.kycStatus === 'VERIFIED',
+                    fullName: workerProfile.full_name,
+                    verified: true,
                 },
-                accessGranted: accessRequest.scopeGranted,
-                accessExpires: accessRequest.expiresAt,
+                accessGranted: grantedScope,
+                accessExpires: tokenRecord.expires_at,
                 verifiedAt: new Date().toISOString(),
             };
-            // Add data based on scope
-            if (accessRequest.scopeGranted.includes('income_data')) {
+            if (grantedScope.includes('income_data')) {
+                const safeIncome = (incomeRecords || []).filter((r) => r.verified);
                 verifiedData.incomeData = {
-                    records: worker.incomeRecords.map(rec => ({
+                    records: safeIncome.map((rec) => ({
                         source: rec.source,
                         amount: rec.amount,
                         period: rec.period,
                         verified: rec.verified,
                     })),
                     summary: {
-                        totalIncome: worker.incomeRecords.reduce((sum, rec) => sum + rec.amount, 0),
-                        averageMonthly: worker.incomeRecords.length > 0
-                            ? worker.incomeRecords.reduce((sum, rec) => sum + rec.amount, 0) / worker.incomeRecords.length
+                        totalIncome: safeIncome.reduce((sum, rec) => sum + rec.amount, 0),
+                        averageMonthly: safeIncome.length > 0
+                            ? safeIncome.reduce((sum, rec) => sum + rec.amount, 0) / safeIncome.length
                             : 0,
-                        sources: [...new Set(worker.incomeRecords.map(r => r.source))],
+                        sources: [...new Set(safeIncome.map((r) => r.source))],
                     },
                 };
             }
-            if (accessRequest.scopeGranted.includes('credentials')) {
-                verifiedData.credentials = worker.credentials
-                    .filter(cred => accessRequest.scopeGranted.some(scope => scope.includes(cred.type.toLowerCase())))
-                    .map(cred => ({
+            if (grantedScope.includes('credentials')) {
+                verifiedData.credentials = (credentials || [])
+                    .filter((cred) => !cred.revoked)
+                    .map((cred) => ({
                     type: cred.type,
                     tier: cred.tier,
-                    issuedAt: cred.issuedAt,
-                    expiresAt: cred.expiresAt,
+                    issuedAt: cred.issued_at,
+                    expiresAt: cred.expires_at,
                     metadata: cred.metadata,
                 }));
             }
-            if (accessRequest.scopeGranted.includes('behavioral_data')) {
+            if (grantedScope.includes('behavioral_data')) {
                 verifiedData.behavioralDNA = behavioralDNA;
             }
-            // Add risk assessment
             verifiedData.riskAssessment = {
                 score: fraudAnalysis.riskScore,
                 flags: fraudAnalysis.flags,
                 recommendations: fraudAnalysis.recommendations,
             };
-            // Log access
-            await prisma.consentLog.create({
-                data: {
-                    workerId: worker.userId,
+            if (tokenRecord.lender?.user_id) {
+                await (0, helpers_1.createConsentLog)({
+                    worker_id: workerProfile.user_id,
                     action: 'VIEWED',
-                    actorId: lenderId,
-                    scope: accessRequest.scopeGranted,
-                },
-            });
-            res.json({
-                success: true,
-                data: verifiedData,
-            });
+                    actor_id: tokenRecord.lender.user_id,
+                    scope: grantedScope,
+                });
+            }
+            res.json({ success: true, data: verifiedData });
         }
         catch (error) {
             console.error('Verify worker error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
-    /**
-     * Get lender dashboard data
-     */
     static async getLenderDashboard(req, res) {
         try {
-            const lenderId = req.user?.id;
-            if (!lenderId) {
-                res.status(401).json({
-                    success: false,
-                    error: 'Unauthorized',
-                });
+            const lenderUserId = req.user?.id;
+            if (!lenderUserId) {
+                res.status(401).json({ success: false, error: 'Unauthorized' });
                 return;
             }
-            // Get lender profile
-            const lenderProfile = await prisma.lenderProfile.findUnique({
-                where: { userId: lenderId },
-            });
+            const lenderProfile = await (0, helpers_1.findLenderProfile)(lenderUserId);
             if (!lenderProfile) {
-                res.status(404).json({
-                    success: false,
-                    error: 'Lender profile not found',
-                });
+                res.status(404).json({ success: false, error: 'Lender profile not found' });
                 return;
             }
-            // Get access requests
-            const accessRequests = await prisma.accessRequest.findMany({
-                where: { lenderId },
-                include: {
-                    worker: {
-                        select: {
-                            id: true,
-                            fullName: true,
-                            kycStatus: true,
-                        },
-                    },
-                },
-                orderBy: { createdAt: 'desc' },
-                take: 20,
-            });
-            // Calculate statistics
+            const { data, error } = await supabase_1.supabase
+                .from('access_requests')
+                .select('*, worker:worker_profiles(*)')
+                .eq('lender_id', lenderProfile.id)
+                .order('created_at', { ascending: false })
+                .limit(20);
+            if (error)
+                throw error;
+            const accessRequests = data || [];
             const stats = {
                 totalRequests: accessRequests.length,
-                pendingRequests: accessRequests.filter(r => r.status === 'PENDING').length,
-                approvedRequests: accessRequests.filter(r => r.status === 'APPROVED').length,
-                activeTokens: accessRequests.filter(r => r.status === 'APPROVED' && r.expiresAt > new Date()).length,
+                pendingRequests: accessRequests.filter((r) => r.status === 'PENDING').length,
+                approvedRequests: accessRequests.filter((r) => r.status === 'APPROVED').length,
+                activeTokens: accessRequests.filter((r) => r.status === 'APPROVED' && r.expires_at && new Date(r.expires_at) > new Date()).length,
             };
-            // Get recent activity
-            const recentActivity = accessRequests.slice(0, 10).map(req => ({
-                id: req.id,
-                workerName: req.worker.fullName,
-                purpose: req.purpose,
-                status: req.status,
-                createdAt: req.createdAt,
-                expiresAt: req.expiresAt,
+            const recentActivity = accessRequests.slice(0, 10).map((r) => ({
+                id: r.id,
+                workerName: r.worker?.full_name,
+                purpose: r.purpose,
+                status: r.status,
+                createdAt: r.created_at,
+                expiresAt: r.expires_at,
             }));
-            res.json({
-                success: true,
-                data: {
-                    profile: lenderProfile,
-                    stats,
-                    recentActivity,
-                },
-            });
+            res.json({ success: true, data: { profile: lenderProfile, stats, recentActivity } });
         }
         catch (error) {
             console.error('Get lender dashboard error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
-    /**
-     * Register new lender (admin approval required)
-     */
     static async registerLender(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
             if (!errors.isEmpty()) {
-                res.status(400).json({
-                    success: false,
-                    error: 'Validation failed',
-                    details: errors.array(),
-                });
+                res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
                 return;
             }
             const { orgName, licenseNumber, phone } = req.body;
-            // Check if user exists
-            let user = await prisma.user.findUnique({
-                where: { phone },
-            });
+            let user = await (0, helpers_1.findUserByPhone)(phone);
             if (!user) {
-                // Create user if doesn't exist
-                user = await prisma.user.create({
-                    data: {
-                        phone,
-                        role: 'LENDER',
-                    },
-                });
+                user = await (0, helpers_1.createUser)({ phone, role: 'LENDER' });
             }
             else if (user.role !== 'LENDER') {
-                res.status(400).json({
-                    success: false,
-                    error: 'User already exists with different role',
-                });
+                res.status(400).json({ success: false, error: 'User already exists with different role' });
                 return;
             }
-            // Check if lender profile already exists
-            const existingProfile = await prisma.lenderProfile.findUnique({
-                where: { userId: user.id },
-            });
+            const existingProfile = await (0, helpers_1.findLenderProfile)(user.id);
             if (existingProfile) {
-                res.status(400).json({
-                    success: false,
-                    error: 'Lender profile already exists',
-                });
+                res.status(400).json({ success: false, error: 'Lender profile already exists' });
                 return;
             }
-            // Create lender profile (unverified by default)
-            const lenderProfile = await prisma.lenderProfile.create({
-                data: {
-                    userId: user.id,
-                    orgName,
-                    licenseNumber,
-                    verified: false,
-                },
+            const lenderProfile = await (0, helpers_1.createLenderProfile)({
+                user_id: user.id,
+                org_name: orgName,
+                license_number: licenseNumber,
+                verified: false,
             });
             res.status(201).json({
                 success: true,
@@ -284,176 +182,98 @@ class VerifyController {
         }
         catch (error) {
             console.error('Register lender error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
-    /**
-     * Admin: Approve or reject lender registration
-     */
     static async approveLender(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
             if (!errors.isEmpty()) {
-                res.status(400).json({
-                    success: false,
-                    error: 'Validation failed',
-                    details: errors.array(),
-                });
+                res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
                 return;
             }
-            const { lenderId } = req.params;
+            const lenderId = String(req.params.lenderId);
             const { approved } = req.body;
-            const adminId = req.user?.id;
-            const userRole = req.user?.role;
-            if (userRole !== 'ADMIN') {
-                res.status(403).json({
-                    success: false,
-                    error: 'Admin access required',
-                });
+            if (req.user?.role !== 'ADMIN') {
+                res.status(403).json({ success: false, error: 'Admin access required' });
                 return;
             }
-            const lenderProfile = await prisma.lenderProfile.findUnique({
-                where: { id: lenderId },
-            });
+            const lenderProfile = await (0, helpers_1.findLenderProfileById)(lenderId);
             if (!lenderProfile) {
-                res.status(404).json({
-                    success: false,
-                    error: 'Lender profile not found',
-                });
+                res.status(404).json({ success: false, error: 'Lender profile not found' });
                 return;
             }
             if (approved) {
-                // Approve lender
-                await prisma.lenderProfile.update({
-                    where: { id: lenderId },
-                    data: {
-                        verified: true,
-                        verifiedAt: new Date(),
-                    },
-                });
+                await (0, helpers_1.updateLenderProfile)(lenderId, { verified: true, verified_at: new Date() });
             }
             else {
-                // Reject lender - delete profile
-                await prisma.lenderProfile.delete({
-                    where: { id: lenderId },
-                });
+                await (0, helpers_1.deleteLenderProfile)(lenderId);
             }
-            res.json({
-                success: true,
-                message: `Lender ${approved ? 'approved' : 'rejected'} successfully`,
-            });
+            res.json({ success: true, message: `Lender ${approved ? 'approved' : 'rejected'} successfully` });
         }
         catch (error) {
             console.error('Approve lender error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
-    /**
-     * Admin: Get all lenders
-     */
     static async getLenders(req, res) {
         try {
-            const userRole = req.user?.role;
-            if (userRole !== 'ADMIN') {
-                res.status(403).json({
-                    success: false,
-                    error: 'Admin access required',
-                });
+            if (req.user?.role !== 'ADMIN') {
+                res.status(403).json({ success: false, error: 'Admin access required' });
                 return;
             }
-            const lenders = await prisma.lenderProfile.findMany({
-                include: {
-                    user: {
-                        select: {
-                            phone: true,
-                        },
-                    },
-                    _count: {
-                        select: {
-                            accessRequests: true,
-                        },
-                    },
-                },
-                orderBy: { createdAt: 'desc' },
-            });
-            res.json({
-                success: true,
-                data: lenders,
-            });
+            const { data, error } = await supabase_1.supabase
+                .from('lender_profiles')
+                .select('*, user:users(phone)')
+                .order('created_at', { ascending: false });
+            if (error)
+                throw error;
+            const lenders = data || [];
+            const enriched = await Promise.all(lenders.map(async (l) => ({
+                ...l,
+                _count: { accessRequests: await (0, helpers_1.countRecords)('access_requests', { lender_id: l.id }) },
+            })));
+            res.json({ success: true, data: enriched });
         }
         catch (error) {
             console.error('Get lenders error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
-    /**
-     * Admin: Get system health metrics
-     */
     static async getSystemHealth(req, res) {
         try {
-            const userRole = req.user?.role;
-            if (userRole !== 'ADMIN') {
-                res.status(403).json({
-                    success: false,
-                    error: 'Admin access required',
-                });
+            if (req.user?.role !== 'ADMIN') {
+                res.status(403).json({ success: false, error: 'Admin access required' });
                 return;
             }
-            // Get various counts
-            const [totalUsers, totalWorkers, totalLenders, totalCredentials, totalAccessRequests, pendingLenders,] = await Promise.all([
-                prisma.user.count(),
-                prisma.workerProfile.count(),
-                prisma.lenderProfile.count({ where: { verified: true } }),
-                prisma.credential.count(),
-                prisma.accessRequest.count(),
-                prisma.lenderProfile.count({ where: { verified: false } }),
+            const [totalUsers, totalWorkers, totalLenders, totalCredentials, activeCredentials, totalAccessRequests, pendingLenders, pendingRequests, approvedRequests,] = await Promise.all([
+                (0, helpers_1.countRecords)('users'),
+                (0, helpers_1.countRecords)('worker_profiles'),
+                (0, helpers_1.countRecords)('lender_profiles', { verified: true }),
+                (0, helpers_1.countRecords)('credentials'),
+                (0, helpers_1.countRecords)('credentials', { revoked: false }),
+                (0, helpers_1.countRecords)('access_requests'),
+                (0, helpers_1.countRecords)('lender_profiles', { verified: false }),
+                (0, helpers_1.countRecords)('access_requests', { status: 'PENDING' }),
+                (0, helpers_1.countRecords)('access_requests', { status: 'APPROVED' }),
             ]);
-            const health = {
-                users: {
-                    total: totalUsers,
-                    workers: totalWorkers,
-                    lenders: totalLenders,
-                    pendingLenders,
-                },
-                credentials: {
-                    total: totalCredentials,
-                    active: await prisma.credential.count({ where: { revoked: false } }),
-                },
-                access: {
-                    totalRequests: totalAccessRequests,
-                    pendingRequests: await prisma.accessRequest.count({ where: { status: 'PENDING' } }),
-                    approvedRequests: await prisma.accessRequest.count({ where: { status: 'APPROVED' } }),
-                },
-                system: {
-                    uptime: process.uptime(),
-                    timestamp: new Date().toISOString(),
-                },
-            };
             res.json({
                 success: true,
-                data: health,
+                data: {
+                    users: { total: totalUsers, workers: totalWorkers, lenders: totalLenders, pendingLenders },
+                    credentials: { total: totalCredentials, active: activeCredentials },
+                    access: { totalRequests: totalAccessRequests, pendingRequests, approvedRequests },
+                    system: { uptime: process.uptime(), timestamp: new Date().toISOString() },
+                },
             });
         }
         catch (error) {
             console.error('Get system health error:', error);
-            res.status(500).json({
-                success: false,
-                error: 'Internal server error',
-            });
+            res.status(500).json({ success: false, error: 'Internal server error' });
         }
     }
 }
 exports.VerifyController = VerifyController;
-// Validation rules
 exports.verifyValidators = {
     verifyWorker: [
         (0, express_validator_1.query)('workerId').isUUID().withMessage('Invalid worker ID'),

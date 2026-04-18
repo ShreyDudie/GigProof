@@ -1,13 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.accessValidators = exports.AccessController = void 0;
-const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
-const prisma = new client_1.PrismaClient();
+const supabase_1 = require("../database/supabase");
+const helpers_1 = require("../database/helpers");
 class AccessController {
-    /**
-     * Request access to worker data
-     */
+    static getParamId(value) {
+        return Array.isArray(value) ? value[0] : value || '';
+    }
     static async requestAccess(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -28,10 +28,7 @@ class AccessController {
                 });
                 return;
             }
-            // Check if lender profile exists and is verified
-            const lenderProfile = await prisma.lenderProfile.findUnique({
-                where: { userId: lenderId },
-            });
+            const lenderProfile = await (0, helpers_1.findLenderProfile)(lenderId);
             if (!lenderProfile || !lenderProfile.verified) {
                 res.status(403).json({
                     success: false,
@@ -39,14 +36,15 @@ class AccessController {
                 });
                 return;
             }
-            // Check for existing pending request
-            const existingRequest = await prisma.accessRequest.findFirst({
-                where: {
-                    lenderId,
-                    workerId,
-                    status: 'PENDING',
-                },
-            });
+            const { data: existingRequest, error: existingError } = await supabase_1.supabase
+                .from('access_requests')
+                .select('*')
+                .eq('lender_id', lenderId)
+                .eq('worker_id', workerId)
+                .eq('status', 'PENDING')
+                .single();
+            if (existingError && existingError.code !== 'PGRST116')
+                throw existingError;
             if (existingRequest) {
                 res.status(400).json({
                     success: false,
@@ -54,14 +52,13 @@ class AccessController {
                 });
                 return;
             }
-            const accessRequest = await prisma.accessRequest.create({
-                data: {
-                    lenderId,
-                    workerId,
-                    purpose,
-                    scopeRequested: scope,
-                    status: 'PENDING',
-                },
+            const accessRequest = await (0, helpers_1.createAccessRequest)({
+                lender_id: lenderId,
+                worker_id: workerId,
+                purpose,
+                scope_requested: scope,
+                status: 'PENDING',
+                created_at: new Date(),
             });
             res.status(201).json({
                 success: true,
@@ -77,9 +74,6 @@ class AccessController {
             });
         }
     }
-    /**
-     * Get access requests (for workers to view incoming requests)
-     */
     static async getAccessRequests(req, res) {
         try {
             const userId = req.user?.id;
@@ -92,15 +86,14 @@ class AccessController {
                 });
                 return;
             }
-            let where = {};
-            if (userRole === 'WORKER') {
-                where.workerId = userId;
-            }
-            else if (userRole === 'LENDER') {
-                where.lenderId = userId;
-            }
+            const filter = {};
+            if (userRole === 'WORKER')
+                filter.worker_id = userId;
+            else if (userRole === 'LENDER')
+                filter.lender_id = userId;
             else if (userRole === 'ADMIN') {
-                // Admins can see all requests
+                if (status)
+                    filter.status = status;
             }
             else {
                 res.status(403).json({
@@ -109,33 +102,20 @@ class AccessController {
                 });
                 return;
             }
-            if (status) {
-                where.status = status;
-            }
-            const accessRequests = await prisma.accessRequest.findMany({
-                where,
-                include: {
-                    worker: {
-                        select: {
-                            id: true,
-                            fullName: true,
-                            user: {
-                                select: {
-                                    phone: true,
-                                },
-                            },
-                        },
-                    },
-                    lender: {
-                        select: {
-                            id: true,
-                            orgName: true,
-                            licenseNumber: true,
-                        },
-                    },
-                },
-                orderBy: { createdAt: 'desc' },
-            });
+            if (status && userRole !== 'ADMIN')
+                filter.status = status;
+            const requests = await (userRole === 'LENDER'
+                ? (0, helpers_1.findAccessRequestsByLender)(userId)
+                : userRole === 'WORKER'
+                    ? (0, helpers_1.findAccessRequestsByWorker)(userId)
+                    : supabase_1.supabase
+                        .from('access_requests')
+                        .select(`*, worker:worker_profiles(*, user:users(*)), lender:lender_profiles(*)`)
+                        .order('created_at', { ascending: false })
+                        .then(({ data }) => data || []));
+            const accessRequests = Array.isArray(requests)
+                ? requests.filter((reqItem) => !filter.status || reqItem.status === filter.status)
+                : [];
             res.json({
                 success: true,
                 data: accessRequests,
@@ -149,9 +129,6 @@ class AccessController {
             });
         }
     }
-    /**
-     * Approve or deny access request
-     */
     static async respondToAccessRequest(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -163,7 +140,7 @@ class AccessController {
                 });
                 return;
             }
-            const { requestId } = req.params;
+            const requestId = this.getParamId(req.params.requestId);
             const { action, scopeGranted, tokenExpiryHours } = req.body;
             const userId = req.user?.id;
             const userRole = req.user?.role;
@@ -174,10 +151,7 @@ class AccessController {
                 });
                 return;
             }
-            const accessRequest = await prisma.accessRequest.findUnique({
-                where: { id: requestId },
-                include: { worker: true },
-            });
+            const accessRequest = await (0, helpers_1.findAccessRequestById)(requestId);
             if (!accessRequest) {
                 res.status(404).json({
                     success: false,
@@ -185,8 +159,7 @@ class AccessController {
                 });
                 return;
             }
-            // Only the worker or admin can respond to requests
-            if (userRole !== 'ADMIN' && accessRequest.workerId !== userId) {
+            if (userRole !== 'ADMIN' && accessRequest.worker_id !== userId) {
                 res.status(403).json({
                     success: false,
                     error: 'Insufficient permissions',
@@ -204,22 +177,17 @@ class AccessController {
                 status: action === 'approve' ? 'APPROVED' : 'DENIED',
             };
             if (action === 'approve') {
-                updateData.scopeGranted = scopeGranted || accessRequest.scopeRequested;
-                updateData.token = `access_token_${Math.random().toString(36).substr(2, 16)}`;
-                updateData.expiresAt = new Date(Date.now() + (tokenExpiryHours || 24) * 60 * 60 * 1000);
+                updateData.scope_granted = scopeGranted || accessRequest.scope_requested;
+                updateData.token = `access_token_${Math.random().toString(36).substring(2, 16)}`;
+                updateData.expires_at = new Date(Date.now() + (tokenExpiryHours || 24) * 60 * 60 * 1000);
             }
-            const updatedRequest = await prisma.accessRequest.update({
-                where: { id: requestId },
-                data: updateData,
-            });
-            // Log consent action
-            await prisma.consentLog.create({
-                data: {
-                    workerId: accessRequest.workerId,
-                    action: action === 'approve' ? 'GRANTED' : 'REVOKED',
-                    actorId: userId,
-                    scope: updateData.scopeGranted || [],
-                },
+            const updatedRequest = await (0, helpers_1.updateAccessRequest)(requestId, updateData);
+            await (0, helpers_1.createConsentLog)({
+                worker_id: accessRequest.worker_id,
+                action: action === 'approve' ? 'GRANTED' : 'REVOKED',
+                actor_id: userId,
+                scope: updateData.scope_granted || [],
+                timestamp: new Date(),
             });
             res.json({
                 success: true,
@@ -235,9 +203,6 @@ class AccessController {
             });
         }
     }
-    /**
-     * Revoke access token
-     */
     static async revokeAccess(req, res) {
         try {
             const errors = (0, express_validator_1.validationResult)(req);
@@ -249,7 +214,7 @@ class AccessController {
                 });
                 return;
             }
-            const { requestId } = req.params;
+            const requestId = this.getParamId(req.params.requestId);
             const userId = req.user?.id;
             const userRole = req.user?.role;
             if (!userId) {
@@ -259,9 +224,7 @@ class AccessController {
                 });
                 return;
             }
-            const accessRequest = await prisma.accessRequest.findUnique({
-                where: { id: requestId },
-            });
+            const accessRequest = await (0, helpers_1.findAccessRequestById)(requestId);
             if (!accessRequest) {
                 res.status(404).json({
                     success: false,
@@ -269,32 +232,24 @@ class AccessController {
                 });
                 return;
             }
-            // Only the worker, lender, or admin can revoke access
-            if (userRole !== 'ADMIN' &&
-                accessRequest.workerId !== userId &&
-                accessRequest.lenderId !== userId) {
+            if (userRole !== 'ADMIN' && accessRequest.worker_id !== userId && accessRequest.lender_id !== userId) {
                 res.status(403).json({
                     success: false,
                     error: 'Insufficient permissions',
                 });
                 return;
             }
-            const updatedRequest = await prisma.accessRequest.update({
-                where: { id: requestId },
-                data: {
-                    status: 'EXPIRED',
-                    token: null,
-                    expiresAt: new Date(),
-                },
+            const updatedRequest = await (0, helpers_1.updateAccessRequest)(requestId, {
+                status: 'EXPIRED',
+                token: null,
+                expires_at: new Date(),
             });
-            // Log consent revocation
-            await prisma.consentLog.create({
-                data: {
-                    workerId: accessRequest.workerId,
-                    action: 'REVOKED',
-                    actorId: userId,
-                    scope: accessRequest.scopeGranted,
-                },
+            await (0, helpers_1.createConsentLog)({
+                worker_id: accessRequest.worker_id,
+                action: 'REVOKED',
+                actor_id: userId,
+                scope: accessRequest.scope_granted,
+                timestamp: new Date(),
             });
             res.json({
                 success: true,
@@ -310,9 +265,6 @@ class AccessController {
             });
         }
     }
-    /**
-     * Get consent logs
-     */
     static async getConsentLogs(req, res) {
         try {
             const userId = req.user?.id;
@@ -325,19 +277,14 @@ class AccessController {
                 });
                 return;
             }
-            let where = {};
-            if (userRole === 'WORKER') {
-                where.workerId = userId;
-            }
-            else if (userRole === 'LENDER') {
-                // Lenders can only see logs where they are the actor
-                where.actorId = userId;
-            }
+            const filter = {};
+            if (userRole === 'WORKER')
+                filter.worker_id = userId;
+            else if (userRole === 'LENDER')
+                filter.actor_id = userId;
             else if (userRole === 'ADMIN') {
-                // Admins can see all logs, optionally filtered by worker
-                if (workerId) {
-                    where.workerId = workerId;
-                }
+                if (workerId)
+                    filter.worker_id = workerId;
             }
             else {
                 res.status(403).json({
@@ -346,28 +293,11 @@ class AccessController {
                 });
                 return;
             }
-            if (startDate || endDate) {
-                where.timestamp = {};
-                if (startDate) {
-                    where.timestamp.gte = new Date(startDate);
-                }
-                if (endDate) {
-                    where.timestamp.lte = new Date(endDate);
-                }
-            }
-            const consentLogs = await prisma.consentLog.findMany({
-                where,
-                include: {
-                    worker: {
-                        select: {
-                            id: true,
-                            fullName: true,
-                        },
-                    },
-                },
-                orderBy: { timestamp: 'desc' },
-                take: 100, // Limit results
-            });
+            if (startDate)
+                filter.startDate = startDate;
+            if (endDate)
+                filter.endDate = endDate;
+            const consentLogs = await (0, helpers_1.findConsentLogs)(filter);
             res.json({
                 success: true,
                 data: consentLogs,
@@ -381,9 +311,6 @@ class AccessController {
             });
         }
     }
-    /**
-     * Validate access token and get granted data
-     */
     static async validateAccessToken(req, res) {
         try {
             const { token } = req.query;
@@ -394,26 +321,7 @@ class AccessController {
                 });
                 return;
             }
-            const accessRequest = await prisma.accessRequest.findFirst({
-                where: {
-                    token: token,
-                    status: 'APPROVED',
-                    expiresAt: {
-                        gt: new Date(),
-                    },
-                },
-                include: {
-                    worker: {
-                        include: {
-                            credentials: {
-                                where: { revoked: false },
-                            },
-                            incomeRecords: true,
-                        },
-                    },
-                    lender: true,
-                },
-            });
+            const accessRequest = await (0, helpers_1.findAccessRequestByToken)(token);
             if (!accessRequest) {
                 res.status(401).json({
                     success: false,
@@ -421,36 +329,35 @@ class AccessController {
                 });
                 return;
             }
-            // Filter data based on granted scope
             const grantedData = {
-                workerId: accessRequest.workerId,
-                grantedScopes: accessRequest.scopeGranted,
-                expiresAt: accessRequest.expiresAt,
+                workerId: accessRequest.worker_id,
+                grantedScopes: accessRequest.scope_granted,
+                expiresAt: accessRequest.expires_at,
             };
-            if (accessRequest.scopeGranted.includes('basic_info')) {
+            if (accessRequest.scope_granted.includes('basic_info')) {
                 grantedData.basicInfo = {
                     fullName: accessRequest.worker.fullName,
                     verified: accessRequest.worker.kycStatus === 'VERIFIED',
                 };
             }
-            if (accessRequest.scopeGranted.includes('income_data')) {
-                grantedData.incomeData = accessRequest.worker.incomeRecords
-                    .filter(rec => rec.verified)
-                    .map(rec => ({
+            if (accessRequest.scope_granted.includes('income_data')) {
+                grantedData.incomeData = (accessRequest.worker.income_records || [])
+                    .filter((rec) => rec.verified)
+                    .map((rec) => ({
                     source: rec.source,
                     amount: rec.amount,
                     period: rec.period,
                     verified: rec.verified,
                 }));
             }
-            if (accessRequest.scopeGranted.includes('credentials')) {
-                grantedData.credentials = accessRequest.worker.credentials
-                    .filter(cred => accessRequest.scopeGranted.includes(cred.type.toLowerCase()))
-                    .map(cred => ({
+            if (accessRequest.scope_granted.includes('credentials')) {
+                grantedData.credentials = (accessRequest.worker.credentials || [])
+                    .filter((cred) => accessRequest.scope_granted.includes(cred.type.toLowerCase()))
+                    .map((cred) => ({
                     type: cred.type,
                     tier: cred.tier,
-                    issuedAt: cred.issuedAt,
-                    expiresAt: cred.expiresAt,
+                    issuedAt: cred.issued_at,
+                    expiresAt: cred.expires_at,
                     metadata: cred.metadata,
                 }));
             }
@@ -469,7 +376,6 @@ class AccessController {
     }
 }
 exports.AccessController = AccessController;
-// Validation rules
 exports.accessValidators = {
     requestAccess: [
         (0, express_validator_1.body)('workerId').isUUID().withMessage('Invalid worker ID'),

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getKycStatus = exports.checkLiveness = exports.verifyAadhaarOtp = exports.sendAadhaarOtp = void 0;
-const index_1 = require("../index");
+const helpers_1 = require("../database/helpers");
 const auth_1 = require("../utils/auth");
 const sendAadhaarOtp = async (req, res) => {
     try {
@@ -11,10 +11,7 @@ const sendAadhaarOtp = async (req, res) => {
         console.log(`Sending OTP to Aadhaar: ${aadhaarNumber}`);
         // Store hashed Aadhaar
         const aadhaarHash = (0, auth_1.hashAadhaar)(aadhaarNumber);
-        await index_1.prisma.user.update({
-            where: { id: userId },
-            data: { aadhaarHash },
-        });
+        await (0, helpers_1.updateUser)(userId, { aadhaar_hash: aadhaarHash });
         // Mock OTP generation
         const mockOtp = '123456';
         console.log(`Mock UIDAI OTP: ${mockOtp}`);
@@ -52,24 +49,19 @@ const verifyAadhaarOtp = async (req, res) => {
             photoBase64: 'mock_photo_data',
         };
         // Update user KYC status
-        await index_1.prisma.user.update({
-            where: { id: userId },
-            data: {
-                kycStatus: 'VERIFIED',
-            },
-        });
+        await (0, helpers_1.updateUser)(userId, { kyc_status: 'VERIFIED' });
         // Create or update worker profile
-        await index_1.prisma.workerProfile.upsert({
-            where: { userId },
-            update: {
-                fullName: mockKycData.name,
-            },
-            create: {
-                userId,
-                fullName: mockKycData.name,
-                preferredLang: 'en',
-            },
-        });
+        const existingProfile = await (0, helpers_1.findWorkerProfile)(userId);
+        if (existingProfile) {
+            await (0, helpers_1.updateWorkerProfile)(existingProfile.id, { full_name: mockKycData.name });
+        }
+        else {
+            await (0, helpers_1.createWorkerProfile)({
+                user_id: userId,
+                full_name: mockKycData.name,
+                preferred_lang: 'en',
+            });
+        }
         res.json({
             success: true,
             data: {
@@ -112,10 +104,7 @@ exports.checkLiveness = checkLiveness;
 const getKycStatus = async (req, res) => {
     try {
         const userId = req.user.id;
-        const user = await index_1.prisma.user.findUnique({
-            where: { id: userId },
-            select: { kycStatus: true, did: true },
-        });
+        const user = await (0, helpers_1.findUserById)(userId);
         res.json({
             success: true,
             data: user,

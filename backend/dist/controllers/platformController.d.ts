@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 export declare class PlatformController {
+    private static getParamId;
     /**
      * Connect to a platform (OAuth simulation)
      */
@@ -24,6 +25,7 @@ export declare class PlatformController {
      * Private method to sync platform data
      */
     private static syncPlatformData;
+    private static fetchRealPlatformData;
     /**
      * Generate mock platform data for demo
      */

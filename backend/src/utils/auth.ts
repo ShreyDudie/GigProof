@@ -3,15 +3,15 @@ import { createHash } from 'crypto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 export const generateAccessToken = (userId: string): string => {
-  return jwt.sign({ userId }, process.env.JWT_ACCESS_SECRET!, {
-    expiresIn: process.env.JWT_ACCESS_EXPIRES_IN,
-  });
+  const secret = process.env.JWT_ACCESS_SECRET as jwt.Secret;
+  const expiresIn = (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as jwt.SignOptions['expiresIn'];
+  return jwt.sign({ userId }, secret, { expiresIn });
 };
 
 export const generateRefreshToken = (userId: string): string => {
-  return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET!, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
-  });
+  const secret = process.env.JWT_REFRESH_SECRET as jwt.Secret;
+  const expiresIn = (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
+  return jwt.sign({ userId }, secret, { expiresIn });
 };
 
 export const hashAadhaar = (aadhaar: string): string => {

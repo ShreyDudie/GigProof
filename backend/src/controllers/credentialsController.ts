@@ -13,6 +13,10 @@ import {
 } from '../database/helpers';
 
 export class CredentialsController {
+  private static getParamId(value: string | string[] | undefined): string {
+    return Array.isArray(value) ? value[0] : value || '';
+  }
+
   /**
    * Get worker's credentials
    */
@@ -83,10 +87,15 @@ export class CredentialsController {
       }
 
       const credentialData = await this.generateCredentialData(workerId, type);
+      const avgIncome = Number(credentialData?.metadata?.averageMonthly || credentialData?.metadata?.totalIncome || 0);
       const zkProof = await ZKProofService.generateProof({
-        credentialId: `temp_${Date.now()}`,
-        workerId,
-        attributes: credentialData.metadata,
+        credentialType: type,
+        claim: {
+          field: 'income',
+          operator: 'gt',
+          value: Math.max(0, Math.floor(avgIncome * 0.8)),
+        },
+        privateInput: avgIncome,
       });
 
       const credential = await createCredential({
@@ -139,7 +148,7 @@ export class CredentialsController {
         return;
       }
 
-      const { credentialId } = req.params;
+      const credentialId = this.getParamId(req.params.credentialId);
       const workerId = req.user?.id;
 
       if (!workerId) {
@@ -282,8 +291,13 @@ export class CredentialsController {
         return;
       }
 
-      const { proof, publicSignals } = req.body;
-      const isValid = await ZKProofService.verifyProof(proof, publicSignals);
+      const { proof, publicSignals, verificationKey } = req.body;
+      const verification = await ZKProofService.verifyProof(
+        proof,
+        publicSignals,
+        verificationKey || JSON.stringify({ protocol: 'groth16', mock: true })
+      );
+      const isValid = verification.valid;
 
       if (!isValid) {
         res.status(400).json({

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { updateUser, findWorkerProfile, createWorkerProfile, updateWorkerProfile } from '../database/helpers';
+import { updateUser, findWorkerProfile, createWorkerProfile, updateWorkerProfile, findUserById } from '../database/helpers';
 import { hashAadhaar } from '../utils/auth';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { ApiResponse, KycAadhaarRequest, KycAadhaarVerifyRequest, LivenessRequest } from '../types/requests';

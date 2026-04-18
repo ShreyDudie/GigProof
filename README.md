@@ -1,288 +1,184 @@
 # GigProof - Digital Identity for Gig Workers
 
-A React Native mobile application that creates verifiable digital identities for gig workers in India, enabling them to access formal financial services.
+GigProof helps gig workers build verifiable digital identity and income proofs that lenders can evaluate with worker consent.
 
-## Problem Statement
+## Current Stack
 
-Gig workers in India face significant challenges in accessing formal financial services due to lack of verifiable income proof and credit history. Traditional banking systems require formal employment documents that gig workers don't have. This creates a barrier to financial inclusion for millions of workers in the gig economy.
+### Mobile
+- React Native (Expo)
+- TypeScript
+- React Navigation (role-based + tab flows)
+- Zustand + React Query
+- NativeWind
 
-## Solution
+### Backend
+- Node.js + Express + TypeScript
+- Supabase (Postgres + REST)
+- JWT auth
+- Multer for uploads
 
-GigProof creates a digital identity system where:
-- **Workers** can connect their gig platforms and build verifiable credentials
-- **Lenders** can assess creditworthiness using behavioral DNA analysis
-- **Admins** oversee the platform and ensure compliance
+### Crypto and Identity
+- did-jwt / did-resolver
+- snarkjs (mocked flow for hackathon/dev)
+- @noble/ed25519
 
-## Architecture
+## What Is Implemented
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   React Native  │    │   Node.js API   │    │   PostgreSQL    │
-│   (Expo)        │◄──►│   (Express)     │◄──►│   (Prisma ORM)  │
-│                 │    │                 │    │                 │
-│ - Auth Screens  │    │ - JWT Auth      │    │ - User Profiles │
-│ - Role-based UI │    │ - KYC Service   │    │ - Credentials   │
-│ - ZK Proofs     │    │ - Platform APIs │    │ - Income Data   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Blockchain    │    │   Redis Cache   │    │   Bull Queues   │
-│   (Polygon)     │    │                 │    │                 │
-│                 │    │ - Sessions      │    │ - Sync Jobs     │
-│ - DID Registry  │    │ - API Cache     │    │ - ZK Proof Gen  │
-│ - VC Issuance   │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+### Worker App
+- Onboarding flow: KYC, platform connect, profile setup
+- Home dashboard: score card, activity, quick actions
+- Identity tab: credentials list, trust badges, QR share
+- Earnings tab: analytics + chart
+- Share tab: access request view + QR generation
+- Profile tab: low bandwidth mode, offline mode, queue sync
 
-## Tech Stack
+### Lender App
+- Dashboard
+- Verify worker screen
+- Requests management
+- Account and compliance summary
 
-### Frontend (React Native)
-- **Framework**: React Native with Expo
-- **Language**: TypeScript (strict mode)
-- **Navigation**: React Navigation v6 (Stack + Bottom Tabs)
-- **State Management**: Zustand
-- **Server State**: TanStack React Query
-- **Styling**: NativeWind (Tailwind for RN)
-- **Animations**: React Native Reanimated 3
-- **Camera**: Expo Camera
-- **SMS**: Expo SMS
-- **Storage**: Expo SecureStore
-- **i18n**: react-i18next (Hindi, English, Tamil, Telugu, Bengali)
+### Admin App
+- Overview metrics
+- Workers view
+- Lenders view
+- Credentials operations screen
+- Logs screen
 
-### Backend (Node.js)
-- **Runtime**: Node.js with TypeScript
-- **Framework**: Express.js
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: JWT (access + refresh tokens)
-- **Caching**: Redis
-- **Job Queues**: Bull
-- **File Uploads**: Multer
-- **Testing**: Jest
-
-### Blockchain & Cryptography
-- **Network**: Polygon Mumbai (testnet)
-- **DID**: did-jwt and did-resolver (W3C DIDs)
-- **ZK Proofs**: snarkjs (mock implementation for hackathon)
-- **Signing**: @noble/ed25519
+### Backend Features
+- Auth OTP flow
+- KYC flow (mock UIDAI behavior)
+- Credentials, income, access, attestations routes
+- Verify routes for lender/admin
+- WhatsApp webhook route + signature check + test endpoint
+- Optional real platform API fetch with fallback to mock platform data
 
 ## Prerequisites
 
 - Node.js 18+
-- PostgreSQL 14+
-- Redis 6+
-- Expo CLI
-- Git
+- npm
+- Supabase project
+- Expo CLI (optional but recommended)
 
-## Local Setup
+## Setup
 
-### 1. Clone and Install Dependencies
+### 1. Install dependencies
 
 ```bash
-# Backend
+# backend
 cd backend
 npm install
 
-# Mobile
+# mobile
 cd ../mobile
 npm install
 ```
 
-### 2. Environment Configuration
+### 2. Configure backend environment
 
-Copy environment files:
+Create `backend/.env` from `backend/.env.example`.
+
+Required values:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
+- `ENCRYPTION_KEY`
+- `POLYGON_RPC_URL`
+- `PRIVATE_KEY`
+
+Recommended:
+- `JWT_SECRET`
+
+Optional:
+- `WHATSAPP_VERIFY_TOKEN`
+- `WHATSAPP_APP_SECRET`
+- `UBER_EARNINGS_API`
+- `OLA_EARNINGS_API`
+- `SWIGGY_EARNINGS_API`
+- `ZOMATO_EARNINGS_API`
+- `URBAN_COMPANY_EARNINGS_API`
+- `UPWORK_EARNINGS_API`
+- `FIVERR_EARNINGS_API`
+- `LINKEDIN_EARNINGS_API`
+
+### 3. Where to get keys
+
+- Supabase keys:
+  - Supabase Dashboard -> Project Settings -> API
+  - `Project URL` -> `SUPABASE_URL`
+  - `anon public` -> `SUPABASE_ANON_KEY`
+  - `service_role` -> `SUPABASE_SERVICE_ROLE_KEY`
+- JWT secrets:
+  - Generate long random strings.
+- `ENCRYPTION_KEY`:
+  - 32-byte hex key (64 hex chars).
+- `POLYGON_RPC_URL`:
+  - RPC provider endpoint (Alchemy/Infura/QuickNode).
+- `PRIVATE_KEY`:
+  - Test wallet key for dev only.
+- WhatsApp:
+  - Meta App Dashboard for app secret.
+  - Verify token is your own chosen token configured in webhook settings.
+
+## Run
+
+### Backend
 
 ```bash
-# Backend
-cp .env.example .env
-
-# Update .env with your values:
-DATABASE_URL="postgresql://username:password@localhost:5432/gigproof"
-JWT_ACCESS_SECRET="your-access-secret"
-JWT_REFRESH_SECRET="your-refresh-secret"
-REDIS_URL="redis://localhost:6379"
-ENCRYPTION_KEY="32-char-encryption-key"
-```
-
-### 3. Database Setup
-
-```bash
-# Generate Prisma client
-npm run db:generate
-
-# Run migrations
-npm run db:migrate
-
-# Seed with demo data
-npm run db:seed
-```
-
-### 4. Start Services
-
-```bash
-# Terminal 1: Backend
+cd backend
 npm run dev
+```
 
-# Terminal 2: Redis (if not running)
-redis-server
+### Mobile
 
-# Terminal 3: Mobile
+```bash
+cd mobile
 npm start
 ```
 
-## Demo Accounts
+## Dry Run Checklist
 
-### Workers
-- **Ravi Kumar**: +919876543210 (OTP: 123456)
-- **Priya Sharma**: +919876543211 (OTP: 123456)
-- **Mohammed Arif**: +919876543212 (OTP: 123456)
+1. `GET /health` returns OK.
+2. `POST /api/v1/auth/send-otp` creates OTP and logs OTP in backend console.
+3. `POST /api/v1/auth/verify-otp` works with logged OTP.
+4. `POST /api/v1/kyc/aadhaar/verify` accepts OTP `123456` in mock mode.
+5. `GET /api/v1/whatsapp/webhook/test` returns live status.
+6. Platform sync works even without platform API URLs using mock fallback.
 
-### Lenders
-- **Saraswat Bank**: +919876543213 (OTP: 123456)
-- **FinCare NBFC**: +919876543214 (OTP: 123456) - Pending approval
+## Mock Data and Mock Behavior
 
-### Admin
-- **Admin**: +919999999999 (OTP: 123456)
+Currently active mocks in runtime:
+- Auth OTP delivery is mock (OTP printed in server logs).
+- KYC UIDAI flow is mock and accepts `123456`.
+- WhatsApp conversational OTP flow uses mock logic.
+- Platform integration auto-falls back to generated mock earnings if real API URL is missing.
+- ZK proof service is mocked.
 
-## Key Features
+Important:
+- There is no active one-command Supabase seed script wired in package scripts yet.
+- Existing `backend/prisma/seed.ts` is Prisma-era and not part of current Supabase runtime path.
 
-### For Workers
-- **KYC Verification**: Aadhaar-based identity verification with OTP
-- **Platform Integration**: Connect Uber, Ola, Swiggy, Upwork, Fiverr
-- **Behavioral DNA**: 7-signal scoring system for credit assessment
-- **Verifiable Credentials**: W3C VCs with ZK proofs for privacy
-- **Offline QR**: Physical credential sharing
-- **Peer Attestations**: Social proof from other workers
+## API Base Paths
 
-### For Lenders
-- **QR Verification**: Scan worker credentials instantly
-- **Risk Assessment**: Behavioral DNA radar charts
-- **Access Control**: Granular permission management
-- **ZK Proof Verification**: Privacy-preserving income proofs
-- **Case Management**: Link verifications to loan applications
+- `POST /api/v1/auth/send-otp`
+- `POST /api/v1/auth/verify-otp`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/kyc/aadhaar`
+- `POST /api/v1/kyc/aadhaar/verify`
+- `GET /api/v1/credentials`
+- `GET /api/v1/income`
+- `GET /api/v1/access/requests`
+- `GET /api/v1/verify/worker`
+- `GET /api/v1/verify/lender/dashboard`
+- `GET /api/v1/verify/admin/health`
 
-### For Admins
-- **Platform Monitoring**: Real-time metrics and health checks
-- **User Management**: KYC approvals and fraud detection
-- **Credential Oversight**: Bulk operations and compliance
-- **Audit Logs**: Complete consent and access tracking
+## Notes
 
-## Behavioral DNA Signals
-
-The platform computes 7 key signals for worker assessment:
-
-1. **Consistency Index**: Income stability over time
-2. **Platform Diversification**: Variety of income sources
-3. **Growth Trajectory**: Income trend analysis
-4. **Demand Responsiveness**: Peak earning periods
-5. **Skill Acquisition**: New credential acquisition rate
-6. **Recovery Speed**: Bounce-back from income drops
-7. **Reputation Momentum**: Rating trend analysis
-
-## ZK Proof System
-
-For the hackathon, we've implemented a mock ZK proof system that:
-- Maintains the same API as real snarkjs circuits
-- Provides cryptographically structured proofs
-- Can be swapped for real circom circuits in production
-
-### Production Upgrade Path
-
-1. Design circom circuits for each credential type
-2. Generate trusted setup ceremonies
-3. Deploy verification contracts to Polygon mainnet
-4. Update proof generation to use real snarkjs
-
-## API Documentation
-
-### Authentication
-```http
-POST /api/v1/auth/send-otp
-POST /api/v1/auth/verify-otp
-POST /api/v1/auth/refresh
-DELETE /api/v1/auth/logout
-```
-
-### KYC
-```http
-POST /api/v1/kyc/aadhaar
-POST /api/v1/kyc/aadhaar/verify
-POST /api/v1/kyc/liveness
-GET /api/v1/kyc/status
-```
-
-### Credentials
-```http
-GET /api/v1/credentials
-GET /api/v1/credentials/:id
-POST /api/v1/credentials/:id/zkproof
-DELETE /api/v1/credentials/:id
-```
-
-### Verification (Lender)
-```http
-GET /api/v1/verify/:token
-```
-
-## Security Features
-
-- **Data Encryption**: AES-256-GCM for sensitive data
-- **Token Security**: JWT with rotation and secure storage
-- **Rate Limiting**: Per-user and per-IP limits
-- **Input Validation**: Zod schemas on all endpoints
-- **Biometric Auth**: Expo LocalAuthentication for sensitive actions
-- **Certificate Pinning**: Backend certificate validation
-
-## Known Limitations
-
-1. **Mock ZK Proofs**: Current implementation is not truly zero-knowledge
-2. **Limited Platform APIs**: Only mock integrations for development
-3. **SMS Provider**: Using mock SMS service
-4. **Blockchain**: Testnet only, mainnet deployment needed
-5. **Offline QR**: Expires after 30 days, no revocation checking
-
-## Production Deployment
-
-### Infrastructure
-- **Docker**: Containerized deployment
-- **Kubernetes**: Orchestration for scaling
-- **AWS/GCP**: Cloud hosting with CDN
-- **PostgreSQL**: Managed database service
-- **Redis**: Managed cache service
-
-### Monitoring
-- **Application Metrics**: Response times, error rates
-- **Business Metrics**: User acquisition, conversion rates
-- **Security Monitoring**: Failed auth attempts, suspicious patterns
-
-## Team & Hackathon Context
-
-This project was built for [Hackathon Name] to demonstrate how blockchain and ZK proofs can solve real-world financial inclusion challenges in emerging markets.
-
-### Team Members
-- [Your Name] - Full-stack Developer
-- [Team Member] - Blockchain Engineer
-- [Team Member] - UX Designer
-
-### Tech Decisions
-- **Expo**: Rapid development and cross-platform compatibility
-- **Prisma**: Type-safe database operations
-- **Zustand**: Lightweight state management
-- **NativeWind**: Consistent styling system
-- **Polygon**: Low-cost, fast Ethereum L2
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+- Mobile API URL is currently `http://localhost:3001/api/v1` in `mobile/src/services/api.ts`.
+- For physical device testing, replace localhost with your machine LAN IP.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Support
-
-For questions or support, please contact [your-email@example.com]
+MIT

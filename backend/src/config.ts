@@ -1,7 +1,9 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ override: true });
+dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
 
 export const config = {
   port: process.env.PORT || 3001,

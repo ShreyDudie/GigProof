@@ -1,36 +1,13 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../middleware/auth';
 export declare class PeerAttestationController {
-    /**
-     * Create a peer attestation
-     */
-    static createAttestation(req: Request, res: Response): Promise<void>;
-    /**
-     * Get attestations for a worker
-     */
-    static getAttestations(req: Request, res: Response): Promise<void>;
-    /**
-     * Get attestations given by a worker
-     */
-    static getGivenAttestations(req: Request, res: Response): Promise<void>;
-    /**
-     * Update attestation
-     */
-    static updateAttestation(req: Request, res: Response): Promise<void>;
-    /**
-     * Delete attestation
-     */
-    static deleteAttestation(req: Request, res: Response): Promise<void>;
-    /**
-     * Verify attestation signature
-     */
-    static verifyAttestation(req: Request, res: Response): Promise<void>;
-    /**
-     * Get attestation statistics
-     */
-    static getAttestationStats(req: Request, res: Response): Promise<void>;
-    /**
-     * Calculate attestation weight based on relationship
-     */
+    static createAttestation(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getAttestations(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getGivenAttestations(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static updateAttestation(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static deleteAttestation(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static verifyAttestation(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getAttestationStats(req: AuthenticatedRequest, res: Response): Promise<void>;
     private static calculateAttestationWeight;
 }
 export declare const peerAttestationValidators: {

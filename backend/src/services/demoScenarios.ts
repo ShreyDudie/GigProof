@@ -1,215 +1,93 @@
-import { PrismaClient } from '@prisma/client';
+import {
+  createAccessRequest,
+  createConsentLog,
+  createCredential,
+  createIncomeRecord,
+  createLenderProfile,
+  createUser,
+  createWorkerProfile,
+  deleteFromTable,
+  findLenderProfile,
+  findUserByPhone,
+  findWorkerProfile,
+} from '../database/helpers';
 import { BehavioralDNAService } from './behavioralDNA';
-import { ZKProofService } from './zkProof';
-import { OfflineCredentialService } from './offlineCredential';
 import { FraudDetectionService } from './fraudDetection';
-
-const prisma = new PrismaClient();
+import { OfflineCredentialService } from './offlineCredential';
 
 export class DemoScenariosService {
-  /**
-   * Create comprehensive demo scenario for a worker
-   */
   static async createWorkerDemoScenario(phone: string): Promise<{
     worker: any;
     credentials: any[];
     behavioralDNA: any;
     fraudAnalysis: any;
+    offlineCredential: any;
   }> {
-    // Create or update worker profile
-    const worker = await prisma.user.upsert({
-      where: { phone },
-      update: {
-        role: 'WORKER',
-      },
-      create: {
-        phone,
-        role: 'WORKER',
-      },
-    });
+    let workerUser = await findUserByPhone(phone);
+    if (!workerUser) {
+      workerUser = await createUser({ phone, role: 'WORKER' });
+    }
 
-    const workerProfile = await prisma.workerProfile.upsert({
-      where: { userId: worker.id },
-      update: {},
-      create: {
-        userId: worker.id,
-        fullName: 'Rajesh Kumar Sharma',
-        dateOfBirth: new Date('1995-06-15'),
-        gender: 'MALE',
-        address: '123 MG Road, Bangalore, Karnataka 560001',
-        languages: ['Hindi', 'English', 'Kannada'],
-        skills: ['Driving', 'Delivery', 'Customer Service'],
-        kycStatus: 'VERIFIED',
-        aadhaarVerified: true,
-        panVerified: true,
-        bankVerified: true,
-        selfieVerified: true,
-      },
-    });
+    let workerProfile = await findWorkerProfile(workerUser.id);
+    if (!workerProfile) {
+      workerProfile = await createWorkerProfile({
+        user_id: workerUser.id,
+        full_name: 'Rajesh Kumar Sharma',
+        preferred_lang: 'hi',
+      });
+    }
 
-    // Create income records for behavioral DNA
     const incomeRecords = [
-      { source: 'Uber', amount: 8500, period: '2024-01-01', transactionRef: 'UBR001' },
-      { source: 'Uber', amount: 9200, period: '2024-01-15', transactionRef: 'UBR002' },
-      { source: 'Swiggy', amount: 6500, period: '2024-01-01', transactionRef: 'SWG001' },
-      { source: 'Swiggy', amount: 7100, period: '2024-01-15', transactionRef: 'SWG002' },
-      { source: 'Urban Company', amount: 12000, period: '2024-02-01', transactionRef: 'UCB001' },
-      { source: 'Urban Company', amount: 11800, period: '2024-02-15', transactionRef: 'UCB002' },
-      { source: 'Uber', amount: 8800, period: '2024-02-01', transactionRef: 'UBR003' },
-      { source: 'Uber', amount: 9500, period: '2024-02-15', transactionRef: 'UBR004' },
-      { source: 'Swiggy', amount: 6800, period: '2024-02-01', transactionRef: 'SWG003' },
-      { source: 'Swiggy', amount: 7200, period: '2024-02-15', transactionRef: 'SWG004' },
-      { source: 'Urban Company', amount: 12500, period: '2024-03-01', transactionRef: 'UCB003' },
-      { source: 'Urban Company', amount: 12200, period: '2024-03-15', transactionRef: 'UCB004' },
+      { source: 'UBER', amount: 8500, period: '2024-01' },
+      { source: 'UBER', amount: 9200, period: '2024-02' },
+      { source: 'SWIGGY', amount: 7100, period: '2024-03' },
+      { source: 'URBAN_COMPANY', amount: 11800, period: '2024-04' },
     ];
 
     for (const record of incomeRecords) {
-      await prisma.incomeRecord.upsert({
-        where: {
-          workerId_source_period: {
-            workerId: workerProfile.id,
-            source: record.source,
-            period: record.period,
-          },
-        },
-        update: {},
-        create: {
-          workerId: workerProfile.id,
-          ...record,
-          verified: true,
-        },
+      await createIncomeRecord({
+        worker_id: workerProfile.id,
+        source: record.source,
+        amount: record.amount,
+        currency: 'INR',
+        period: record.period,
+        verified: true,
       });
     }
 
-    // Create credentials
-    const credentials = [];
-
-    // Income credential
-    const incomeCredential = await prisma.credential.upsert({
-      where: { id: `income-${workerProfile.id}` },
-      update: {},
-      create: {
-        workerId: workerProfile.id,
+    const credentials = await Promise.all([
+      createCredential({
+        worker_id: workerProfile.id,
         type: 'INCOME',
         tier: 'GOLD',
         issuer: 'GigProof',
-        issuedAt: new Date(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
-        vcJwt: 'mock-vc-jwt-income',
-        zkProofReady: true,
+        expires_at: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+        vc_jwt: 'mock_vc_income',
+        zk_proof_ready: false,
         metadata: {
-          totalIncome: 125000,
-          averageMonthly: 10416,
-          platforms: ['Uber', 'Swiggy', 'Urban Company'],
-          consistencyScore: 0.85,
+          totalIncome: 36600,
+          avgMonthly: 9150,
+          verifiedSources: 3,
         },
-      },
-    });
-    credentials.push(incomeCredential);
-
-    // Rating credential
-    const ratingCredential = await prisma.credential.upsert({
-      where: { id: `rating-${workerProfile.id}` },
-      update: {},
-      create: {
-        workerId: workerProfile.id,
+      }),
+      createCredential({
+        worker_id: workerProfile.id,
         type: 'RATING',
-        tier: 'GOLD',
-        issuer: 'GigProof',
-        issuedAt: new Date(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        vcJwt: 'mock-vc-jwt-rating',
-        zkProofReady: true,
-        metadata: {
-          averageRating: 4.7,
-          totalRatings: 245,
-          platforms: ['Uber', 'Swiggy', 'Urban Company'],
-          fiveStarPercentage: 78,
-        },
-      },
-    });
-    credentials.push(ratingCredential);
-
-    // Employment credential
-    const employmentCredential = await prisma.credential.upsert({
-      where: { id: `employment-${workerProfile.id}` },
-      update: {},
-      create: {
-        workerId: workerProfile.id,
-        type: 'EMPLOYMENT',
         tier: 'SILVER',
         issuer: 'GigProof',
-        issuedAt: new Date(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        vcJwt: 'mock-vc-jwt-employment',
-        zkProofReady: true,
+        expires_at: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+        vc_jwt: 'mock_vc_rating',
+        zk_proof_ready: false,
         metadata: {
-          totalGigs: 156,
-          activePlatforms: 3,
-          tenure: '2 years',
-          completionRate: 94,
+          avgRating: 4.6,
+          gigsCompleted: 154,
         },
-      },
-    });
-    credentials.push(employmentCredential);
+      }),
+    ]);
 
-    // Compute behavioral DNA
-    const behavioralDNA = await BehavioralDNAService.computeForWorker(workerProfile.id);
-
-    // Generate ZK proofs for credentials
-    for (const credential of credentials) {
-      const proof = await ZKProofService.generateProof({
-        credentialId: credential.id,
-        workerId: workerProfile.id,
-        attributes: credential.metadata,
-      });
-
-      await prisma.credential.update({
-        where: { id: credential.id },
-        data: {
-          metadata: {
-            ...credential.metadata,
-            zkProof: proof,
-          },
-        },
-      });
-    }
-
-    // Create peer attestations
-    const attestations = [
-      {
-        relationship: 'COWORKER',
-        statement: 'Rajesh is reliable and punctual. Great team player.',
-        weight: 0.8,
-      },
-      {
-        relationship: 'NEIGHBOR',
-        statement: 'Known him for 3 years. Honest and hardworking.',
-        weight: 0.6,
-      },
-      {
-        relationship: 'COLLABORATED',
-        statement: 'Worked together on multiple projects. Excellent service quality.',
-        weight: 0.9,
-      },
-    ];
-
-    for (const att of attestations) {
-      await prisma.peerAttestation.create({
-        data: {
-          subjectId: workerProfile.id,
-          attesterId: 'mock-attester-' + Math.random().toString(36).substr(2, 9),
-          ...att,
-          signature: 'mock-signature-' + Math.random().toString(36).substr(2, 9),
-        },
-      });
-    }
-
-    // Generate offline credential
-    const offlineCredential = await OfflineCredentialService.generateOfflineCard(workerProfile.id);
-
-    // Run fraud analysis
+    const behavioralDNA = await BehavioralDNAService.computeForWorker(workerUser.id);
     const fraudAnalysis = await FraudDetectionService.analyzeAccessPatterns(workerProfile.id);
+    const offlineCredential = await OfflineCredentialService.generateOfflineCard(workerProfile.id);
 
     return {
       worker: workerProfile,
@@ -220,153 +98,81 @@ export class DemoScenariosService {
     };
   }
 
-  /**
-   * Create lender demo scenario
-   */
   static async createLenderDemoScenario(phone: string, orgName: string): Promise<any> {
-    const lender = await prisma.user.upsert({
-      where: { phone },
-      update: {
-        role: 'LENDER',
-      },
-      create: {
-        phone,
-        role: 'LENDER',
-      },
-    });
+    let lenderUser = await findUserByPhone(phone);
+    if (!lenderUser) {
+      lenderUser = await createUser({ phone, role: 'LENDER' });
+    }
 
-    const lenderProfile = await prisma.lenderProfile.upsert({
-      where: { userId: lender.id },
-      update: {},
-      create: {
-        userId: lender.id,
-        orgName,
-        licenseNumber: `LIC${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+    let lenderProfile = await findLenderProfile(lenderUser.id);
+    if (!lenderProfile) {
+      lenderProfile = await createLenderProfile({
+        user_id: lenderUser.id,
+        org_name: orgName,
+        license_number: `LIC-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
         verified: true,
-        verifiedAt: new Date(),
-      },
-    });
+        verified_at: new Date(),
+      });
+    }
 
     return lenderProfile;
   }
 
-  /**
-   * Simulate access request workflow
-   */
   static async simulateAccessRequest(
-    lenderId: string,
-    workerId: string,
+    lenderProfileId: string,
+    workerProfileId: string,
     purpose: string,
     scope: string[]
   ): Promise<any> {
-    // Create access request
-    const accessRequest = await prisma.accessRequest.create({
-      data: {
-        lenderId,
-        workerId,
-        purpose,
-        scopeRequested: scope,
-        scopeGranted: scope, // Auto-approve for demo
-        status: 'APPROVED',
-        token: `token_${Math.random().toString(36).substr(2, 16)}`,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      },
-    });
-
-    // Log consent
-    await prisma.consentLog.create({
-      data: {
-        workerId,
-        action: 'GRANTED',
-        actorId: lenderId,
-        scope,
-      },
+    const accessRequest = await createAccessRequest({
+      lender_id: lenderProfileId,
+      worker_id: workerProfileId,
+      purpose,
+      scope_requested: scope,
+      scope_granted: scope,
+      status: 'APPROVED',
+      token: `token_${Math.random().toString(36).substring(2, 16)}`,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
     });
 
     return accessRequest;
   }
 
-  /**
-   * Generate demo report for lender
-   */
-  static async generateLenderReport(lenderId: string): Promise<{
+  static async generateLenderReport(lenderProfileId: string): Promise<{
     totalWorkersAccessed: number;
     averageScore: number;
     riskDistribution: Record<string, number>;
     recentActivity: any[];
   }> {
-    const accessRequests = await prisma.accessRequest.findMany({
-      where: { lenderId, status: 'APPROVED' },
-      include: {
-        worker: {
-          include: {
-            credentials: true,
-            incomeRecords: true,
-          },
-        },
-      },
-    });
+    const workerActivity = [
+      { workerName: 'Rajesh Kumar', purpose: 'Loan underwriting', score: 82, timestamp: new Date() },
+      { workerName: 'Sita Devi', purpose: 'Credit line review', score: 74, timestamp: new Date() },
+    ];
 
-    const totalWorkersAccessed = accessRequests.length;
-
-    const scores = accessRequests.map(req => {
-      // Mock score calculation based on credentials
-      const credentialCount = req.worker.credentials.length;
-      const incomeSum = req.worker.incomeRecords.reduce((sum, rec) => sum + rec.amount, 0);
-      return Math.min(100, (credentialCount * 10) + (incomeSum / 1000));
-    });
-
-    const averageScore = scores.length > 0
-      ? scores.reduce((a, b) => a + b, 0) / scores.length
-      : 0;
-
-    // Risk distribution
-    const riskDistribution = {
-      low: scores.filter(s => s >= 80).length,
-      medium: scores.filter(s => s >= 60 && s < 80).length,
-      high: scores.filter(s => s < 60).length,
-    };
-
-    const recentActivity = accessRequests
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, 5)
-      .map(req => ({
-        workerName: req.worker.fullName,
-        purpose: req.purpose,
-        score: scores[accessRequests.indexOf(req)],
-        timestamp: req.createdAt,
-      }));
+    const scores = workerActivity.map((x) => x.score);
+    const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
 
     return {
-      totalWorkersAccessed,
+      totalWorkersAccessed: workerActivity.length,
       averageScore,
-      riskDistribution,
-      recentActivity,
+      riskDistribution: {
+        low: scores.filter((s) => s >= 80).length,
+        medium: scores.filter((s) => s >= 60 && s < 80).length,
+        high: scores.filter((s) => s < 60).length,
+      },
+      recentActivity: workerActivity,
     };
   }
 
-  /**
-   * Reset demo data
-   */
   static async resetDemoData(): Promise<void> {
-    // Clear all demo data
-    await prisma.consentLog.deleteMany();
-    await prisma.accessRequest.deleteMany();
-    await prisma.peerAttestation.deleteMany();
-    await prisma.credential.deleteMany();
-    await prisma.incomeRecord.deleteMany();
-    await prisma.workerProfile.deleteMany();
-    await prisma.lenderProfile.deleteMany();
-    await prisma.otpVerification.deleteMany();
-    await prisma.whatsAppLog.deleteMany();
-
-    // Reset users (keep admin)
-    await prisma.user.deleteMany({
-      where: {
-        role: {
-          not: 'ADMIN',
-        },
-      },
-    });
+    await deleteFromTable('consent_logs');
+    await deleteFromTable('access_requests');
+    await deleteFromTable('peer_attestations');
+    await deleteFromTable('credentials');
+    await deleteFromTable('income_records');
+    await deleteFromTable('worker_profiles');
+    await deleteFromTable('lender_profiles');
+    await deleteFromTable('otp_verifications');
+    await deleteFromTable('users');
   }
 }

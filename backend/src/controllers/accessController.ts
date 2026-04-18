@@ -14,6 +14,10 @@ import {
 } from '../database/helpers';
 
 export class AccessController {
+  private static getParamId(value: string | string[] | undefined): string {
+    return Array.isArray(value) ? value[0] : value || '';
+  }
+
   static async requestAccess(
     req: Request,
     res: Response
@@ -163,7 +167,7 @@ export class AccessController {
         return;
       }
 
-      const { requestId } = req.params;
+      const requestId = this.getParamId(req.params.requestId);
       const { action, scopeGranted, tokenExpiryHours } = req.body;
       const userId = req.user?.id;
       const userRole = req.user?.role;
@@ -250,7 +254,7 @@ export class AccessController {
         return;
       }
 
-      const { requestId } = req.params;
+      const requestId = this.getParamId(req.params.requestId);
       const userId = req.user?.id;
       const userRole = req.user?.role;
 

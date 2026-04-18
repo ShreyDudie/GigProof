@@ -1,29 +1,12 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../middleware/auth';
 export declare class VerifyController {
-    /**
-     * Verify worker data for lender
-     */
-    static verifyWorker(req: Request, res: Response): Promise<void>;
-    /**
-     * Get lender dashboard data
-     */
-    static getLenderDashboard(req: Request, res: Response): Promise<void>;
-    /**
-     * Register new lender (admin approval required)
-     */
-    static registerLender(req: Request, res: Response): Promise<void>;
-    /**
-     * Admin: Approve or reject lender registration
-     */
-    static approveLender(req: Request, res: Response): Promise<void>;
-    /**
-     * Admin: Get all lenders
-     */
-    static getLenders(req: Request, res: Response): Promise<void>;
-    /**
-     * Admin: Get system health metrics
-     */
-    static getSystemHealth(req: Request, res: Response): Promise<void>;
+    static verifyWorker(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getLenderDashboard(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static registerLender(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static approveLender(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getLenders(req: AuthenticatedRequest, res: Response): Promise<void>;
+    static getSystemHealth(req: AuthenticatedRequest, res: Response): Promise<void>;
 }
 export declare const verifyValidators: {
     verifyWorker: import("express-validator").ValidationChain[];

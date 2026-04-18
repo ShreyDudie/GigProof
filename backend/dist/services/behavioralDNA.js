@@ -1,39 +1,29 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BehavioralDNAService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const helpers_1 = require("../database/helpers");
 class BehavioralDNAService {
     static async computeForWorker(workerId) {
-        // Fetch worker's income records and platform data
-        const [incomeRecords, platforms, credentials] = await Promise.all([
-            prisma.incomeRecord.findMany({
-                where: { workerId },
-                orderBy: { createdAt: 'asc' },
-            }),
-            prisma.platform.findMany({
-                where: { workerId },
-            }),
-            prisma.credential.findMany({
-                where: { workerId },
-                orderBy: { issuedAt: 'asc' },
-            }),
+        const [incomeRecords, platforms, credentials, workerProfile] = await Promise.all([
+            (0, helpers_1.findIncomeByWorker)(workerId),
+            (0, helpers_1.findPlatformsByWorker)(workerId),
+            (0, helpers_1.findCredentialsByWorker)(workerId),
+            (0, helpers_1.findWorkerProfile)(workerId),
         ]);
-        const signals = this.computeSignals(incomeRecords, platforms, credentials);
+        const signals = this.computeSignals(incomeRecords || [], platforms || [], credentials || []);
         const overallScore = this.computeOverallScore(signals);
         const behavioralDNA = {
             signals,
             overallScore,
             computedAt: new Date(),
         };
-        // Update worker profile
-        await prisma.workerProfile.update({
-            where: { id: workerId },
-            data: {
+        if (workerProfile?.id) {
+            await (0, helpers_1.updateWorkerProfile)(workerProfile.id, {
                 behavioralDNA,
                 overallScore,
-            },
-        });
+                updated_at: new Date(),
+            });
+        }
         return behavioralDNA;
     }
     static computeSignals(incomeRecords, platforms, credentials) {

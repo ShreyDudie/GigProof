@@ -10,6 +10,10 @@ import {
 } from '../database/helpers';
 
 export class IncomeController {
+  private static getParamId(value: string | string[] | undefined): string {
+    return Array.isArray(value) ? value[0] : value || '';
+  }
+
   static async getIncomeRecords(
     req: Request,
     res: Response
@@ -33,8 +37,9 @@ export class IncomeController {
       if (startDate) query = query.gte('created_at', new Date(startDate as string));
       if (endDate) query = query.lte('created_at', new Date(endDate as string));
 
-      const { data: incomeRecords = [], error } = await query;
+      const { data: incomeRecordsData, error } = await query;
       if (error) throw error;
+      const incomeRecords = incomeRecordsData ?? [];
 
       const totalIncome = incomeRecords.reduce((sum: number, rec: any) => sum + rec.amount, 0);
       const averageMonthly = incomeRecords.length > 0 ? totalIncome / incomeRecords.length : 0;
@@ -147,7 +152,7 @@ export class IncomeController {
         return;
       }
 
-      const { recordId } = req.params;
+      const recordId = this.getParamId(req.params.recordId);
       const { amount, verified } = req.body;
       const workerId = req.user?.id;
 
@@ -204,7 +209,7 @@ export class IncomeController {
         return;
       }
 
-      const { recordId } = req.params;
+      const recordId = this.getParamId(req.params.recordId);
       const workerId = req.user?.id;
 
       if (!workerId) {
@@ -254,13 +259,14 @@ export class IncomeController {
         return;
       }
 
-      const { data: incomeRecords = [], error } = await supabase
+      const { data: incomeRecordsData, error } = await supabase
         .from('income_records')
         .select('*')
         .eq('worker_id', workerId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
+      const incomeRecords = incomeRecordsData ?? [];
 
       if (incomeRecords.length === 0) {
         res.json({
@@ -349,7 +355,7 @@ export class IncomeController {
         return;
       }
 
-      const { recordId } = req.params;
+      const recordId = this.getParamId(req.params.recordId);
       const { verified } = req.body;
       const userId = req.user?.id;
       const userRole = req.user?.role;

@@ -1,56 +1,43 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FraudDetectionService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const helpers_1 = require("../database/helpers");
 class FraudDetectionService {
-    /**
-     * Analyze access patterns for potential fraud
-     */
-    static async analyzeAccessPatterns(workerId) {
-        const accessRequests = await prisma.accessRequest.findMany({
-            where: { workerId },
-            orderBy: { createdAt: 'desc' },
-            take: 50, // Last 50 requests
-        });
+    static async analyzeAccessPatterns(workerProfileId) {
+        const accessRequests = (await (0, helpers_1.findAccessRequestsByWorker)(workerProfileId)) || [];
         const flags = [];
         const recommendations = [];
         let riskScore = 0;
-        // Check for rapid successive requests
-        const recentRequests = accessRequests.filter(req => new Date(req.createdAt).getTime() > Date.now() - 24 * 60 * 60 * 1000 // Last 24 hours
-        );
+        const recentRequests = accessRequests.filter((req) => new Date(req.created_at).getTime() > Date.now() - 24 * 60 * 60 * 1000);
         if (recentRequests.length > 10) {
             flags.push('HIGH_FREQUENCY_REQUESTS');
             riskScore += 30;
             recommendations.push('Limit access requests to 5 per day');
         }
-        // Check for requests from same lender repeatedly
         const lenderCounts = recentRequests.reduce((acc, req) => {
-            acc[req.lenderId] = (acc[req.lenderId] || 0) + 1;
+            acc[req.lender_id] = (acc[req.lender_id] || 0) + 1;
             return acc;
         }, {});
-        const maxRequestsFromLender = Math.max(...Object.values(lenderCounts));
+        const lenderBuckets = Object.values(lenderCounts);
+        const maxRequestsFromLender = lenderBuckets.length > 0 ? Math.max(...lenderBuckets) : 0;
         if (maxRequestsFromLender > 5) {
             flags.push('REPEATED_LENDER_REQUESTS');
             riskScore += 20;
             recommendations.push('Review consent for repeated lender access');
         }
-        // Check for broad scope requests
-        const broadScopeRequests = accessRequests.filter(req => req.scopeRequested.length > 3);
-        if (broadScopeRequests.length > recentRequests.length * 0.3) {
+        const broadScopeRequests = accessRequests.filter((req) => (req.scope_requested || []).length > 3);
+        if (recentRequests.length > 0 && broadScopeRequests.length > recentRequests.length * 0.3) {
             flags.push('BROAD_SCOPE_REQUESTS');
             riskScore += 25;
             recommendations.push('Require specific scope justification');
         }
-        // Check for denied requests pattern
-        const deniedRequests = accessRequests.filter(req => req.status === 'DENIED');
-        if (deniedRequests.length > accessRequests.length * 0.5) {
+        const deniedRequests = accessRequests.filter((req) => req.status === 'DENIED');
+        if (accessRequests.length > 0 && deniedRequests.length > accessRequests.length * 0.5) {
             flags.push('HIGH_DENIAL_RATE');
             riskScore += 15;
             recommendations.push('Review profile completeness and data quality');
         }
-        // Behavioral analysis
-        const behavioralDNA = await this.getBehavioralDNA(workerId);
+        const behavioralDNA = await this.getBehavioralDNA(workerProfileId);
         if (behavioralDNA.consistencyIndex < 0.6) {
             flags.push('LOW_CONSISTENCY_INDEX');
             riskScore += 20;
@@ -61,44 +48,31 @@ class FraudDetectionService {
             riskScore += 25;
             recommendations.push('Address negative feedback and improve service quality');
         }
-        // Cap risk score at 100
         riskScore = Math.min(riskScore, 100);
-        return {
-            riskScore,
-            flags,
-            recommendations,
-        };
+        return { riskScore, flags, recommendations };
     }
-    /**
-     * Detect suspicious credential sharing patterns
-     */
-    static async detectCredentialAbuse(workerId) {
-        const credentials = await prisma.credential.findMany({
-            where: { workerId },
-        });
+    static async detectCredentialAbuse(workerProfileId) {
+        const [credentials, accessRequests] = await Promise.all([
+            (0, helpers_1.findCredentialsByWorker)(workerProfileId),
+            (0, helpers_1.findAccessRequestsByWorker)(workerProfileId),
+        ]);
         const reasons = [];
-        // Check for recently issued credentials being revoked quickly
-        const recentCredentials = credentials.filter(cred => new Date(cred.issuedAt).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000 // Last 7 days
-        );
-        const revokedRecent = recentCredentials.filter(cred => cred.revoked);
-        if (revokedRecent.length > recentCredentials.length * 0.2) {
+        const safeCredentials = credentials || [];
+        const safeAccessRequests = accessRequests || [];
+        const recentCredentials = safeCredentials.filter((cred) => new Date(cred.issued_at).getTime() > Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const revokedRecent = recentCredentials.filter((cred) => cred.revoked);
+        if (recentCredentials.length > 0 && revokedRecent.length > recentCredentials.length * 0.2) {
             reasons.push('High rate of recent credential revocations');
         }
-        // Check for credentials shared with unverified lenders
-        const accessRequests = await prisma.accessRequest.findMany({
-            where: { workerId, status: 'APPROVED' },
-            include: { lender: true },
-        });
-        const unverifiedLenders = accessRequests.filter(req => !req.lender.verified);
-        if (unverifiedLenders.length > accessRequests.length * 0.3) {
+        const unverifiedLenders = safeAccessRequests.filter((req) => !req.lender?.verified);
+        if (safeAccessRequests.length > 0 && unverifiedLenders.length > safeAccessRequests.length * 0.3) {
             reasons.push('Credentials shared with unverified lenders');
         }
-        // Check for unusual access patterns (e.g., accessing at odd hours)
-        const oddHourAccess = accessRequests.filter(req => {
-            const hour = new Date(req.createdAt).getHours();
-            return hour < 6 || hour > 22; // Outside 6 AM - 10 PM
+        const oddHourAccess = safeAccessRequests.filter((req) => {
+            const hour = new Date(req.created_at).getHours();
+            return hour < 6 || hour > 22;
         });
-        if (oddHourAccess.length > accessRequests.length * 0.1) {
+        if (safeAccessRequests.length > 0 && oddHourAccess.length > safeAccessRequests.length * 0.1) {
             reasons.push('Unusual access timing patterns');
         }
         return {
@@ -106,42 +80,28 @@ class FraudDetectionService {
             reasons,
         };
     }
-    /**
-     * Monitor for data tampering attempts
-     */
-    static async detectDataTampering(workerId) {
+    static async detectDataTampering(workerProfileId) {
         const indicators = [];
-        // Check income records for anomalies
-        const incomeRecords = await prisma.incomeRecord.findMany({
-            where: { workerId },
-            orderBy: { createdAt: 'desc' },
-            take: 100,
-        });
-        // Detect sudden spikes in income
-        for (let i = 1; i < incomeRecords.length; i++) {
-            const current = incomeRecords[i];
-            const previous = incomeRecords[i - 1];
-            if (current.amount > previous.amount * 2) {
-                indicators.push(`Sudden income spike: ${previous.amount} → ${current.amount}`);
+        const [incomeRecords, attestations] = await Promise.all([
+            (0, helpers_1.findIncomeByWorker)(workerProfileId),
+            (0, helpers_1.findAttestationsBySubject)(workerProfileId),
+        ]);
+        const sortedIncomeRecords = (incomeRecords || []).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        for (let i = 1; i < sortedIncomeRecords.length; i++) {
+            const current = sortedIncomeRecords[i];
+            const previous = sortedIncomeRecords[i - 1];
+            if (previous.amount > 0 && current.amount > previous.amount * 2) {
+                indicators.push(`Sudden income spike: ${previous.amount} -> ${current.amount}`);
             }
         }
-        // Check for duplicate transaction references
-        const transactionRefs = incomeRecords
-            .map(rec => rec.transactionRef)
-            .filter(ref => ref !== null);
+        const transactionRefs = sortedIncomeRecords
+            .map((rec) => rec.transaction_ref)
+            .filter((ref) => ref !== null);
         const uniqueRefs = new Set(transactionRefs);
-        if (uniqueRefs.size < transactionRefs.length * 0.9) {
+        if (transactionRefs.length > 0 && uniqueRefs.size < transactionRefs.length * 0.9) {
             indicators.push('Duplicate transaction references detected');
         }
-        // Check peer attestations for suspicious patterns
-        const attestations = await prisma.peerAttestation.findMany({
-            where: { subjectId: workerId },
-        });
-        // Detect self-attestations (same phone number)
-        const selfAttestations = attestations.filter(att => {
-            // In a real implementation, we'd check if attester phone matches worker phone
-            return false; // Mock - assume no self-attestations
-        });
+        const selfAttestations = (attestations || []).filter((att) => att.attester_id === att.subject_id);
         if (selfAttestations.length > 0) {
             indicators.push('Potential self-attestation detected');
         }
@@ -150,36 +110,24 @@ class FraudDetectionService {
             indicators,
         };
     }
-    /**
-     * Get behavioral DNA for fraud analysis
-     */
-    static async getBehavioralDNA(workerId) {
-        const incomeRecords = await prisma.incomeRecord.findMany({
-            where: { workerId },
-            orderBy: { createdAt: 'asc' },
-        });
+    static async getBehavioralDNA(workerProfileId) {
+        const incomeRecords = ((await (0, helpers_1.findIncomeByWorker)(workerProfileId)) || []).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         if (incomeRecords.length === 0) {
-            return {
-                consistencyIndex: 0,
-                reputationMomentum: 0,
-            };
+            return { consistencyIndex: 0, reputationMomentum: 0 };
         }
-        // Calculate consistency index (coefficient of variation)
-        const amounts = incomeRecords.map(rec => rec.amount);
+        const amounts = incomeRecords.map((rec) => rec.amount);
         const mean = amounts.reduce((a, b) => a + b, 0) / amounts.length;
         const variance = amounts.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / amounts.length;
         const stdDev = Math.sqrt(variance);
         const consistencyIndex = mean > 0 ? 1 - (stdDev / mean) : 0;
-        // Calculate reputation momentum (trend in recent performance)
-        const recentRecords = incomeRecords.slice(-10); // Last 10 records
+        const recentRecords = incomeRecords.slice(-10);
         if (recentRecords.length < 2) {
             return { consistencyIndex, reputationMomentum: 0 };
         }
-        const recentAmounts = recentRecords.map(rec => rec.amount);
-        const recentMean = recentAmounts.reduce((a, b) => a + b, 0) / recentAmounts.length;
-        const earlierRecords = incomeRecords.slice(-20, -10); // Previous 10 records
+        const recentMean = recentRecords.reduce((sum, rec) => sum + rec.amount, 0) / recentRecords.length;
+        const earlierRecords = incomeRecords.slice(-20, -10);
         const earlierMean = earlierRecords.length > 0
-            ? earlierRecords.map(rec => rec.amount).reduce((a, b) => a + b, 0) / earlierRecords.length
+            ? earlierRecords.reduce((sum, rec) => sum + rec.amount, 0) / earlierRecords.length
             : mean;
         const reputationMomentum = earlierMean > 0 ? (recentMean - earlierMean) / earlierMean : 0;
         return {
@@ -187,22 +135,14 @@ class FraudDetectionService {
             reputationMomentum,
         };
     }
-    /**
-     * Generate fraud alert for admin review
-     */
-    static async generateFraudAlert(workerId, alertType, details) {
-        // In a real implementation, this would create an alert record
-        // and potentially send notifications to admins
-        console.log(`Fraud Alert Generated: ${alertType} for worker ${workerId}`, details);
-        // Log to consent logs for audit trail
-        await prisma.consentLog.create({
-            data: {
-                workerId,
-                action: 'VIEWED', // Using existing action type
-                actorId: 'system', // System-generated alert
-                scope: ['fraud_detection'],
-                timestamp: new Date(),
-            },
+    static async generateFraudAlert(workerUserId, alertType, details) {
+        console.log(`Fraud Alert Generated: ${alertType} for worker ${workerUserId}`, details);
+        await (0, helpers_1.createConsentLog)({
+            worker_id: workerUserId,
+            action: 'VIEWED',
+            actor_id: workerUserId,
+            scope: ['fraud_detection'],
+            timestamp: new Date(),
         });
     }
 }

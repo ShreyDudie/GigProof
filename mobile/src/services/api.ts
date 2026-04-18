@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
+import { useAppStore } from '../stores/appStore';
 
 const API_BASE_URL = 'http://localhost:3001/api/v1'; // Change for production
 
@@ -12,9 +13,12 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const { accessToken } = useAuthStore.getState();
+    const { lowBandwidthMode, offlineMode } = useAppStore.getState();
     if (accessToken) {
       config.headers.Authorization = `Bearer ${accessToken}`;
     }
+    config.headers['x-low-bandwidth-mode'] = lowBandwidthMode ? '1' : '0';
+    config.headers['x-offline-mode'] = offlineMode ? '1' : '0';
     return config;
   },
   (error) => Promise.reject(error)

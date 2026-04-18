@@ -1,25 +1,43 @@
 import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text } from 'react-native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Text } from 'react-native';
+import LenderDashboardScreen from '../screens/lender/LenderDashboardScreen';
+import LenderVerifyScreen from '../screens/lender/LenderVerifyScreen';
+import LenderRequestsScreen from '../screens/lender/LenderRequestsScreen';
+import LenderAccountScreen from '../screens/lender/LenderAccountScreen';
 
-const PlaceholderScreen = ({ title }: { title: string }) => (
-  <View className="flex-1 justify-center items-center">
-    <Text className="text-xl">{title}</Text>
-  </View>
-);
+export type LenderTabParamList = {
+  Dashboard: undefined;
+  Verify: undefined;
+  Requests: undefined;
+  Account: undefined;
+};
 
-const LenderDashboardScreen = () => <PlaceholderScreen title="Lender Dashboard" />;
-
-const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator<LenderTabParamList>();
 
 export default function LenderNavigator() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen name="LenderDashboard" component={LenderDashboardScreen} />
-    </Stack.Navigator>
+    <Tab.Navigator screenOptions={{ headerShown: false }}>
+      <Tab.Screen
+        name="Dashboard"
+        component={LenderDashboardScreen}
+        options={{ tabBarIcon: ({ focused }) => <Text>{focused ? '📌' : '📍'}</Text> }}
+      />
+      <Tab.Screen
+        name="Verify"
+        component={LenderVerifyScreen}
+        options={{ tabBarIcon: ({ focused }) => <Text>{focused ? '✅' : '🔍'}</Text> }}
+      />
+      <Tab.Screen
+        name="Requests"
+        component={LenderRequestsScreen}
+        options={{ tabBarIcon: ({ focused }) => <Text>{focused ? '📨' : '📩'}</Text> }}
+      />
+      <Tab.Screen
+        name="Account"
+        component={LenderAccountScreen}
+        options={{ tabBarIcon: ({ focused }) => <Text>{focused ? '🏢' : '🏦'}</Text> }}
+      />
+    </Tab.Navigator>
   );
 }

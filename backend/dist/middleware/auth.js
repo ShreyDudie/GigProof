@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireRole = exports.authenticate = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const index_1 = require("../index");
+const helpers_1 = require("../database/helpers");
 const authenticate = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
@@ -17,17 +17,18 @@ const authenticate = async (req, res, next) => {
         }
         const token = authHeader.substring(7);
         const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_ACCESS_SECRET);
-        const user = await index_1.prisma.user.findUnique({
-            where: { id: decoded.userId },
-            select: { id: true, phone: true, role: true },
-        });
+        const user = await (0, helpers_1.findUserById)(decoded.userId);
         if (!user) {
             return res.status(401).json({
                 success: false,
                 error: 'User not found',
             });
         }
-        req.user = user;
+        req.user = {
+            id: user.id,
+            phone: user.phone,
+            role: user.role,
+        };
         next();
     }
     catch (error) {

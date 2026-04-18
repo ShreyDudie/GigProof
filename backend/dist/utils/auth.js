@@ -8,15 +8,15 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = require("crypto");
 const crypto_2 = require("crypto");
 const generateAccessToken = (userId) => {
-    return jsonwebtoken_1.default.sign({ userId }, process.env.JWT_ACCESS_SECRET, {
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN,
-    });
+    const secret = process.env.JWT_ACCESS_SECRET;
+    const expiresIn = (process.env.JWT_ACCESS_EXPIRES_IN || '15m');
+    return jsonwebtoken_1.default.sign({ userId }, secret, { expiresIn });
 };
 exports.generateAccessToken = generateAccessToken;
 const generateRefreshToken = (userId) => {
-    return jsonwebtoken_1.default.sign({ userId }, process.env.JWT_REFRESH_SECRET, {
-        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN,
-    });
+    const secret = process.env.JWT_REFRESH_SECRET;
+    const expiresIn = (process.env.JWT_REFRESH_EXPIRES_IN || '7d');
+    return jsonwebtoken_1.default.sign({ userId }, secret, { expiresIn });
 };
 exports.generateRefreshToken = generateRefreshToken;
 const hashAadhaar = (aadhaar) => {

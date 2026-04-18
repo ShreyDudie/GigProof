@@ -201,6 +201,18 @@ export const createIncomeRecord = async (incomeData: any) => {
   return data;
 };
 
+export const updateIncomeRecord = async (id: string, updates: any) => {
+  const { data, error } = await supabase
+    .from('income_records')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
 // Lender operations
 export const findLenderProfile = async (userId: string) => {
   const { data, error } = await supabase

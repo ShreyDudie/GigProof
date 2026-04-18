@@ -1,5 +1,4 @@
 import jwt from 'jsonwebtoken';
-import { createHash } from 'crypto';
 import qrcode from 'qrcode';
 import { supabase } from '../database/supabase';
 
@@ -56,27 +55,27 @@ export class OfflineCredentialService {
     };
 
     // Sign JWT
-    const jwt = jwt.sign(payload, this.JWT_SECRET, {
+    const token = jwt.sign(payload, this.JWT_SECRET, {
       issuer: this.ISSUER_DID,
       expiresIn: '30d',
     });
 
     // Generate QR code
-    const qrDataUrl = await qrcode.toDataURL(jwt, {
+    const qrDataUrl = await qrcode.toDataURL(token, {
       width: 256,
       margin: 2,
     });
 
     return {
       qrDataUrl,
-      jwt,
+      jwt: token,
       expiresAt: payload.expiresAt,
     };
   }
 
-  static async verifyOfflineCard(jwt: string): Promise<OfflineCredential> {
+  static async verifyOfflineCard(token: string): Promise<OfflineCredential> {
     try {
-      const decoded = jwt.verify(jwt, this.JWT_SECRET) as OfflineCredential;
+      const decoded = jwt.verify(token, this.JWT_SECRET) as OfflineCredential;
 
       // Check if expired
       if (new Date() > new Date(decoded.expiresAt)) {

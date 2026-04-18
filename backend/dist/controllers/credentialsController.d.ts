@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 export declare class CredentialsController {
+    private static getParamId;
     /**
      * Get worker's credentials
      */

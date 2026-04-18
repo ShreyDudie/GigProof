@@ -1,28 +1,11 @@
 import { Request, Response } from 'express';
 export declare class IncomeController {
-    /**
-     * Get worker's income records
-     */
+    private static getParamId;
     static getIncomeRecords(req: Request, res: Response): Promise<void>;
-    /**
-     * Add manual income record
-     */
     static addIncomeRecord(req: Request, res: Response): Promise<void>;
-    /**
-     * Update income record
-     */
     static updateIncomeRecord(req: Request, res: Response): Promise<void>;
-    /**
-     * Delete income record
-     */
     static deleteIncomeRecord(req: Request, res: Response): Promise<void>;
-    /**
-     * Get income analytics
-     */
     static getIncomeAnalytics(req: Request, res: Response): Promise<void>;
-    /**
-     * Verify income record (admin/lender function)
-     */
     static verifyIncomeRecord(req: Request, res: Response): Promise<void>;
 }
 export declare const incomeValidators: {

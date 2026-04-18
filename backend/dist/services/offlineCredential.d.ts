@@ -17,7 +17,7 @@ export declare class OfflineCredentialService {
         jwt: string;
         expiresAt: Date;
     }>;
-    static verifyOfflineCard(jwt: string): Promise<OfflineCredential>;
+    static verifyOfflineCard(token: string): Promise<OfflineCredential>;
     private static computeIncomeRange;
     private static maskName;
 }

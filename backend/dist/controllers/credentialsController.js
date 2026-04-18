@@ -1,12 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.credentialValidators = exports.CredentialsController = void 0;
-const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
 const zkProof_1 = require("../services/zkProof");
 const behavioralDNA_1 = require("../services/behavioralDNA");
-const prisma = new client_1.PrismaClient();
+const supabase_1 = require("../database/supabase");
+const helpers_1 = require("../database/helpers");
 class CredentialsController {
+    static getParamId(value) {
+        return Array.isArray(value) ? value[0] : value || '';
+    }
     /**
      * Get worker's credentials
      */
@@ -21,17 +24,15 @@ class CredentialsController {
                 });
                 return;
             }
-            const where = { workerId };
-            if (type) {
-                where.type = type;
-            }
-            if (tier) {
-                where.tier = tier;
-            }
-            const credentials = await prisma.credential.findMany({
-                where,
-                orderBy: { issuedAt: 'desc' },
-            });
+            let query = supabase_1.supabase.from('credentials').select('*').eq('worker_id', workerId);
+            if (type)
+                query = query.eq('type', type);
+            if (tier)
+                query = query.eq('tier', tier);
+            query = query.order('issued_at', { ascending: false });
+            const { data: credentials, error } = await query;
+            if (error)
+                throw error;
             res.json({
                 success: true,
                 data: credentials,
@@ -68,30 +69,33 @@ class CredentialsController {
                 });
                 return;
             }
-            // Generate credential data based on type
             const credentialData = await this.generateCredentialData(workerId, type);
-            // Generate ZK proof
+            const avgIncome = Number(credentialData?.metadata?.averageMonthly || credentialData?.metadata?.totalIncome || 0);
             const zkProof = await zkProof_1.ZKProofService.generateProof({
-                credentialId: `temp_${Date.now()}`,
-                workerId,
-                attributes: credentialData.metadata,
-            });
-            // Create credential
-            const credential = await prisma.credential.create({
-                data: {
-                    workerId,
-                    type,
-                    tier,
-                    issuer: 'GigProof',
-                    issuedAt: new Date(),
-                    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
-                    vcJwt: `mock_vc_jwt_${Date.now()}`,
-                    zkProofReady: true,
-                    metadata: {
-                        ...credentialData.metadata,
-                        zkProof,
-                    },
+                credentialType: type,
+                claim: {
+                    field: 'income',
+                    operator: 'gt',
+                    value: Math.max(0, Math.floor(avgIncome * 0.8)),
                 },
+                privateInput: avgIncome,
+            });
+            const credential = await (0, helpers_1.createCredential)({
+                worker_id: workerId,
+                type,
+                tier,
+                issuer: 'GigProof',
+                issued_at: new Date(),
+                expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                vc_jwt: `mock_vc_jwt_${Date.now()}`,
+                zk_proof_ready: true,
+                revoked: false,
+                metadata: {
+                    ...credentialData.metadata,
+                    zkProof,
+                },
+                created_at: new Date(),
+                updated_at: new Date(),
             });
             res.status(201).json({
                 success: true,
@@ -121,7 +125,7 @@ class CredentialsController {
                 });
                 return;
             }
-            const { credentialId } = req.params;
+            const credentialId = this.getParamId(req.params.credentialId);
             const workerId = req.user?.id;
             if (!workerId) {
                 res.status(401).json({
@@ -130,13 +134,8 @@ class CredentialsController {
                 });
                 return;
             }
-            const credential = await prisma.credential.findFirst({
-                where: {
-                    id: credentialId,
-                    workerId,
-                },
-            });
-            if (!credential) {
+            const credential = await (0, helpers_1.findCredentialById)(credentialId);
+            if (!credential || credential.worker_id !== workerId) {
                 res.status(404).json({
                     success: false,
                     error: 'Credential not found',
@@ -150,13 +149,10 @@ class CredentialsController {
                 });
                 return;
             }
-            // Revoke credential
-            const updatedCredential = await prisma.credential.update({
-                where: { id: credentialId },
-                data: {
-                    revoked: true,
-                    revokedAt: new Date(),
-                },
+            const updatedCredential = await (0, helpers_1.updateCredential)(credentialId, {
+                revoked: true,
+                revoked_at: new Date(),
+                updated_at: new Date(),
             });
             res.json({
                 success: true,
@@ -195,49 +191,40 @@ class CredentialsController {
                 });
                 return;
             }
-            const credential = await prisma.credential.findFirst({
-                where: {
-                    id: credentialId,
-                    workerId,
-                    revoked: false,
-                },
-            });
-            if (!credential) {
+            const credential = await (0, helpers_1.findCredentialById)(credentialId);
+            if (!credential || credential.worker_id !== workerId || credential.revoked) {
                 res.status(404).json({
                     success: false,
                     error: 'Credential not found or revoked',
                 });
                 return;
             }
-            // Create access request
-            const accessRequest = await prisma.accessRequest.create({
-                data: {
-                    lenderId,
-                    workerId,
-                    purpose,
-                    scopeRequested: scope,
-                    scopeGranted: scope,
-                    status: 'APPROVED', // Auto-approve for demo
-                    token: `access_token_${Math.random().toString(36).substr(2, 16)}`,
-                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-                },
+            const accessToken = `access_token_${Math.random().toString(36).substring(2, 16)}`;
+            const accessRequest = await (0, helpers_1.createAccessRequest)({
+                lender_id: lenderId,
+                worker_id: workerId,
+                purpose,
+                scope_requested: scope,
+                scope_granted: scope,
+                status: 'APPROVED',
+                token: accessToken,
+                expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                created_at: new Date(),
             });
-            // Log consent
-            await prisma.consentLog.create({
-                data: {
-                    workerId,
-                    action: 'GRANTED',
-                    actorId: lenderId,
-                    scope,
-                },
+            await (0, helpers_1.createConsentLog)({
+                worker_id: workerId,
+                action: 'GRANTED',
+                actor_id: lenderId,
+                scope,
+                timestamp: new Date(),
             });
             res.json({
                 success: true,
                 message: 'Credential shared successfully',
                 data: {
                     accessToken: accessRequest.token,
-                    expiresAt: accessRequest.expiresAt,
-                    scope: accessRequest.scopeGranted,
+                    expiresAt: accessRequest.expires_at,
+                    scope: accessRequest.scope_granted,
                 },
             });
         }
@@ -263,9 +250,9 @@ class CredentialsController {
                 });
                 return;
             }
-            const { proof, publicSignals } = req.body;
-            // Verify ZK proof
-            const isValid = await zkProof_1.ZKProofService.verifyProof(proof, publicSignals);
+            const { proof, publicSignals, verificationKey } = req.body;
+            const verification = await zkProof_1.ZKProofService.verifyProof(proof, publicSignals, verificationKey || JSON.stringify({ protocol: 'groth16', mock: true }));
+            const isValid = verification.valid;
             if (!isValid) {
                 res.status(400).json({
                     success: false,
@@ -303,13 +290,16 @@ class CredentialsController {
                 });
                 return;
             }
-            const credentials = await prisma.credential.findMany({
-                where: { workerId },
-            });
+            const { data: credentials, error } = await supabase_1.supabase
+                .from('credentials')
+                .select('*')
+                .eq('worker_id', workerId);
+            if (error)
+                throw error;
             const stats = {
                 total: credentials.length,
-                active: credentials.filter(c => !c.revoked).length,
-                revoked: credentials.filter(c => c.revoked).length,
+                active: credentials.filter((c) => !c.revoked).length,
+                revoked: credentials.filter((c) => c.revoked).length,
                 byType: credentials.reduce((acc, c) => {
                     acc[c.type] = (acc[c.type] || 0) + 1;
                     return acc;
@@ -336,31 +326,30 @@ class CredentialsController {
      * Generate credential data based on type
      */
     static async generateCredentialData(workerId, type) {
-        const worker = await prisma.workerProfile.findUnique({
-            where: { userId: workerId },
-            include: {
-                incomeRecords: true,
-                credentials: true,
-            },
-        });
-        if (!worker) {
+        const { data: worker, error } = await supabase_1.supabase
+            .from('worker_profiles')
+            .select('*, income_records(*), credentials(*)')
+            .eq('user_id', workerId)
+            .single();
+        if (error || !worker) {
             throw new Error('Worker profile not found');
         }
         switch (type) {
-            case 'INCOME':
-                const totalIncome = worker.incomeRecords.reduce((sum, rec) => sum + rec.amount, 0);
-                const averageMonthly = worker.incomeRecords.length > 0
-                    ? totalIncome / worker.incomeRecords.length
+            case 'INCOME': {
+                const totalIncome = worker.income_records.reduce((sum, rec) => sum + rec.amount, 0);
+                const averageMonthly = worker.income_records.length > 0
+                    ? totalIncome / worker.income_records.length
                     : 0;
                 return {
                     metadata: {
                         totalIncome,
                         averageMonthly,
-                        platforms: [...new Set(worker.incomeRecords.map(r => r.source))],
-                        consistencyScore: 0.85, // Mock
+                        platforms: [...new Set(worker.income_records.map((r) => r.source))],
+                        consistencyScore: 0.85,
                         lastUpdated: new Date().toISOString(),
                     },
                 };
+            }
             case 'RATING':
                 return {
                     metadata: {
@@ -374,24 +363,25 @@ class CredentialsController {
             case 'SKILL':
                 return {
                     metadata: {
-                        skills: worker.skills,
-                        verifiedSkills: worker.skills.slice(0, 2), // Mock verification
+                        skills: worker.skills || ['Driving', 'Delivery'],
+                        verifiedSkills: (worker.skills || []).slice(0, 2),
                         certifications: ['Basic Training', 'Safety Course'],
                         lastUpdated: new Date().toISOString(),
                     },
                 };
-            case 'EMPLOYMENT':
+            case 'EMPLOYMENT': {
                 const behavioralDNA = await behavioralDNA_1.BehavioralDNAService.computeForWorker(workerId);
                 return {
                     metadata: {
-                        totalGigs: worker.incomeRecords.length,
-                        activePlatforms: [...new Set(worker.incomeRecords.map(r => r.source))].length,
+                        totalGigs: worker.income_records.length,
+                        activePlatforms: [...new Set(worker.income_records.map((r) => r.source))].length,
                         tenure: '18 months',
                         completionRate: 94,
                         behavioralScore: behavioralDNA.overallScore,
                         lastUpdated: new Date().toISOString(),
                     },
                 };
+            }
             default:
                 return {
                     metadata: {

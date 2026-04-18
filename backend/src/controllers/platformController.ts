@@ -4,6 +4,10 @@ import { supabase } from '../database/supabase';
 import { createIncomeRecord, findPlatformById, updatePlatform, findPlatformsByWorker } from '../database/helpers';
 
 export class PlatformController {
+  private static getParamId(value: string | string[] | undefined): string {
+    return Array.isArray(value) ? value[0] : value || '';
+  }
+
   /**
    * Connect to a platform (OAuth simulation)
    */
@@ -159,7 +163,7 @@ export class PlatformController {
         return;
       }
 
-      const { platformConnectionId } = req.params;
+      const platformConnectionId = this.getParamId(req.params.platformConnectionId);
       const workerId = req.user?.id;
 
       if (!workerId) {
@@ -309,9 +313,10 @@ export class PlatformController {
         throw new Error('Platform connection not found');
       }
 
-      const mockData = this.generateMockPlatformData(platformName);
+      const liveData = await this.fetchRealPlatformData(platformName, connection.access_token);
+      const syncData = liveData || this.generateMockPlatformData(platformName);
 
-      for (const record of mockData.incomeRecords) {
+      for (const record of syncData.incomeRecords) {
         await createIncomeRecord({
           worker_id: connection.worker_id,
           source: platformName,
@@ -336,6 +341,55 @@ export class PlatformController {
         sync_status: 'FAILED',
         last_synced: new Date(),
       });
+    }
+  }
+
+  private static async fetchRealPlatformData(platformName: string, accessToken?: string | null) {
+    const endpointMap: Record<string, string | undefined> = {
+      UBER: process.env.UBER_EARNINGS_API,
+      OLA: process.env.OLA_EARNINGS_API,
+      SWIGGY: process.env.SWIGGY_EARNINGS_API,
+      ZOMATO: process.env.ZOMATO_EARNINGS_API,
+      URBAN_COMPANY: process.env.URBAN_COMPANY_EARNINGS_API,
+      UPWORK: process.env.UPWORK_EARNINGS_API,
+      FIVERR: process.env.FIVERR_EARNINGS_API,
+      LINKEDIN: process.env.LINKEDIN_EARNINGS_API,
+    };
+
+    const endpoint = endpointMap[platformName];
+    if (!endpoint) {
+      return null;
+    }
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          Authorization: accessToken ? `Bearer ${accessToken}` : '',
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json() as any;
+      if (!Array.isArray(data?.incomeRecords)) {
+        return null;
+      }
+
+      return {
+        incomeRecords: data.incomeRecords.map((record: any) => ({
+          amount: Number(record.amount || 0),
+          currency: record.currency || 'INR',
+          period: record.period || new Date().toISOString().slice(0, 10),
+          transactionRef: String(record.transactionRef || `${platformName}_${Date.now()}`),
+        })),
+      };
+    } catch (error) {
+      console.warn(`Real API sync failed for ${platformName}; falling back to mock sync.`);
+      return null;
     }
   }
 

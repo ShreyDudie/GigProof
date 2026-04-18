@@ -5,18 +5,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.logout = exports.refreshToken = exports.verifyOtp = exports.sendOtp = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const index_1 = require("../index");
+const helpers_1 = require("../database/helpers");
 const auth_1 = require("../utils/auth");
 const sendOtp = async (req, res) => {
     try {
         const { phone, role } = req.body;
         // Check if user exists
-        let user = await index_1.prisma.user.findUnique({ where: { phone } });
+        let user = await (0, helpers_1.findUserByPhone)(phone);
         if (!user) {
             // Create new user
-            user = await index_1.prisma.user.create({
-                data: { phone, role },
-            });
+            user = await (0, helpers_1.createUser)({ phone, role });
         }
         else if (user.role !== role) {
             return res.status(400).json({
@@ -27,22 +25,13 @@ const sendOtp = async (req, res) => {
         // Generate and store OTP
         const otp = (0, auth_1.generateOtp)();
         const hashedOtp = (0, auth_1.hashOtp)(otp);
-        await index_1.prisma.otpVerification.upsert({
-            where: { phone },
-            update: {
-                otp: hashedOtp,
-                purpose: 'LOGIN',
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
-                verified: false,
-                attempts: 0,
-            },
-            create: {
-                phone,
-                otp: hashedOtp,
-                purpose: 'LOGIN',
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-                userId: user.id,
-            },
+        await (0, helpers_1.upsertOtp)({
+            phone,
+            otp: hashedOtp,
+            purpose: 'LOGIN',
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+            verified: false,
+            attempts: 0,
         });
         // Mock SMS sending (in production, integrate with SMS provider)
         console.log(`OTP for ${phone}: ${otp}`);
@@ -63,10 +52,7 @@ exports.sendOtp = sendOtp;
 const verifyOtp = async (req, res) => {
     try {
         const { phone, otp } = req.body;
-        const otpRecord = await index_1.prisma.otpVerification.findUnique({
-            where: { phone },
-            include: { user: true },
-        });
+        const otpRecord = await (0, helpers_1.findOtpByPhone)(phone);
         if (!otpRecord) {
             return res.status(400).json({
                 success: false,
@@ -85,7 +71,7 @@ const verifyOtp = async (req, res) => {
                 error: 'Too many attempts',
             });
         }
-        if (new Date() > otpRecord.expiresAt) {
+        if (new Date() > new Date(otpRecord.expires_at)) {
             return res.status(400).json({
                 success: false,
                 error: 'OTP expired',
@@ -93,21 +79,15 @@ const verifyOtp = async (req, res) => {
         }
         const hashedOtp = (0, auth_1.hashOtp)(otp);
         if (hashedOtp !== otpRecord.otp) {
-            await index_1.prisma.otpVerification.update({
-                where: { phone },
-                data: { attempts: { increment: 1 } },
-            });
+            await (0, helpers_1.updateOtp)(phone, { attempts: otpRecord.attempts + 1 });
             return res.status(400).json({
                 success: false,
                 error: 'Invalid OTP',
             });
         }
         // Mark OTP as verified
-        await index_1.prisma.otpVerification.update({
-            where: { phone },
-            data: { verified: true },
-        });
-        const user = otpRecord.user;
+        await (0, helpers_1.updateOtp)(phone, { verified: true });
+        const user = otpRecord.users;
         const accessToken = (0, auth_1.generateAccessToken)(user.id);
         const refreshToken = (0, auth_1.generateRefreshToken)(user.id);
         res.json({
@@ -119,7 +99,7 @@ const verifyOtp = async (req, res) => {
                     id: user.id,
                     phone: user.phone,
                     role: user.role,
-                    kycStatus: user.kycStatus,
+                    kycStatus: user.kyc_status,
                 },
             },
         });
@@ -137,9 +117,7 @@ const refreshToken = async (req, res) => {
     try {
         const { refreshToken: token } = req.body;
         const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_REFRESH_SECRET);
-        const user = await index_1.prisma.user.findUnique({
-            where: { id: decoded.userId },
-        });
+        const user = await (0, helpers_1.findUserById)(decoded.userId);
         if (!user) {
             return res.status(401).json({
                 success: false,
