@@ -1,0 +1,284 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  WORKER
+  LENDER
+  ADMIN
+}
+
+enum KycStatus {
+  PENDING
+  PARTIAL
+  VERIFIED
+  REJECTED
+}
+
+enum PlatformName {
+  UBER
+  OLA
+  SWIGGY
+  ZOMATO
+  URBAN_COMPANY
+  UPWORK
+  FIVERR
+  LINKEDIN
+  OTHER
+}
+
+enum DataSource {
+  OFFICIAL_API
+  EMAIL_PARSE
+  SMS_PARSE
+  SCREENSHOT_OCR
+  ACCESSIBILITY
+}
+
+enum SyncStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  STALE
+}
+
+enum CredentialType {
+  INCOME
+  RATING
+  SKILL
+  EMPLOYMENT
+  IDENTITY
+  PEER
+}
+
+enum Tier {
+  GOLD
+  SILVER
+  BRONZE
+  UNVERIFIED
+}
+
+enum Relationship {
+  COWORKER
+  NEIGHBOR
+  COLLABORATED
+}
+
+enum AccessStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+}
+
+enum ConsentAction {
+  GRANTED
+  REVOKED
+  VIEWED
+  SHARED
+}
+
+enum OtpPurpose {
+  LOGIN
+  KYC
+  CONSENT
+  SHARE
+}
+
+enum WhatsAppDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  phone            String    @unique
+  aadhaarHash      String?
+  panHash          String?
+  role             Role
+  kycStatus        KycStatus @default(PENDING)
+  did              String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workerProfile    WorkerProfile?
+  lenderProfile    LenderProfile?
+  consentLogs      ConsentLog[]
+  otpVerifications OtpVerification[]
+
+  @@map("users")
+}
+
+model WorkerProfile {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @db.Uuid
+  fullName         String
+  preferredLang    String
+  profilePhoto     String?
+  behavioralDNA    Json?
+  overallScore     Float?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platforms        Platform[]
+  credentials      Credential[]
+  peerAttestations PeerAttestation[] @relation("SubjectAttestations")
+  sentAttestations PeerAttestation[] @relation("AttesterAttestations")
+  incomeRecords    IncomeRecord[]
+  accessRequests   AccessRequest[]
+
+  @@map("worker_profiles")
+}
+
+model Platform {
+  id               String       @id @default(uuid()) @db.Uuid
+  workerId         String       @db.Uuid
+  platformName     PlatformName
+  externalId       String?
+  accessToken      String?
+  dataSource       DataSource
+  lastSynced       DateTime?
+  rawDataHash      String?
+  syncStatus       SyncStatus   @default(PENDING)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  worker           WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("platforms")
+}
+
+model Credential {
+  id               String        @id @default(uuid()) @db.Uuid
+  workerId         String        @db.Uuid
+  type             CredentialType
+  tier             Tier
+  issuer           String
+  issuedAt         DateTime      @default(now())
+  expiresAt        DateTime
+  vcJwt            String
+  zkProofReady     Boolean       @default(false)
+  revoked          Boolean       @default(false)
+  revokedAt        DateTime?
+  metadata         Json
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  worker           WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("credentials")
+}
+
+model IncomeRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  workerId         String    @db.Uuid
+  source           String
+  amount           Float
+  currency         String    @default("INR")
+  period           String
+  transactionRef   String?
+  smsRef           String?
+  verified         Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+
+  worker           WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("income_records")
+}
+
+model PeerAttestation {
+  id               String      @id @default(uuid()) @db.Uuid
+  subjectId        String      @db.Uuid
+  attesterId       String      @db.Uuid
+  relationship     Relationship
+  statement        String
+  signature        String
+  weight           Float
+  createdAt        DateTime    @default(now())
+
+  subject          WorkerProfile @relation("SubjectAttestations", fields: [subjectId], references: [id], onDelete: Cascade)
+  attester         WorkerProfile @relation("AttesterAttestations", fields: [attesterId], references: [id], onDelete: Cascade)
+
+  @@map("peer_attestations")
+}
+
+model LenderProfile {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @db.Uuid
+  orgName          String
+  licenseNumber    String
+  verified         Boolean   @default(false)
+  verifiedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessRequests   AccessRequest[]
+
+  @@map("lender_profiles")
+}
+
+model AccessRequest {
+  id               String      @id @default(uuid()) @db.Uuid
+  lenderId         String      @db.Uuid
+  workerId         String      @db.Uuid
+  purpose          String
+  scopeRequested   String[]
+  scopeGranted     String[]
+  status           AccessStatus @default(PENDING)
+  token            String?
+  expiresAt        DateTime?
+  createdAt        DateTime    @default(now())
+
+  lender           LenderProfile @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  worker           WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("access_requests")
+}
+
+model ConsentLog {
+  id               String        @id @default(uuid()) @db.Uuid
+  workerId         String        @db.Uuid
+  action           ConsentAction
+  actorId          String        @db.Uuid
+  scope            String[]
+  ipAddress        String?
+  timestamp        DateTime      @default(now())
+
+  worker           User          @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@map("consent_logs")
+}
+
+model OtpVerification {
+  id               String     @id @default(uuid()) @db.Uuid
+  phone            String
+  otp              String
+  purpose          OtpPurpose
+  expiresAt        DateTime
+  verified         Boolean    @default(false)
+  attempts         Int        @default(0)
+  createdAt        DateTime   @default(now())
+
+  user             User?      @relation(fields: [phone], references: [phone], onDelete: Cascade)
+
+  @@map("otp_verifications")
+}
+
+model WhatsAppLog {
+  id               String        @id @default(uuid()) @db.Uuid
+  from             String
+  message          String
+  direction        WhatsAppDirection
+  timestamp        DateTime      @default(now())
+
+  @@map("whatsapp_logs")
+}

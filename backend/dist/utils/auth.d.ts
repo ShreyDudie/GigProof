@@ -1,0 +1,9 @@
+export declare const generateAccessToken: (userId: string) => string;
+export declare const generateRefreshToken: (userId: string) => string;
+export declare const hashAadhaar: (aadhaar: string) => string;
+export declare const hashPan: (pan: string) => string;
+export declare const hashOtp: (otp: string) => string;
+export declare const encryptToken: (token: string) => string;
+export declare const decryptToken: (encryptedToken: string) => string;
+export declare const generateOtp: () => string;
+//# sourceMappingURL=auth.d.ts.map

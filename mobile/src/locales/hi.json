@@ -1,0 +1,134 @@
+{
+  "auth": {
+    "welcome": "GigProof में आपका स्वागत है",
+    "enterPhone": "अपना फोन नंबर दर्ज करें",
+    "enterOtp": "6-अंकीय OTP दर्ज करें",
+    "resendOtp": "OTP पुनः भेजें",
+    "sendOtp": "OTP भेजें",
+    "verifyOtp": "OTP सत्यापित करें",
+    "phonePlaceholder": "+91 9876543210",
+    "otpPlaceholder": "000000"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "आपका काम। आपका सबूत। आपकी पहचान।",
+      "subtitle": "अपने गिग काम से सत्यापन योग्य डिजिटल क्रेडेंशियल बनाएं ताकि औपचारिक वित्तीय सेवाओं तक पहुंच सकें।",
+      "getStarted": "शुरू करें"
+    },
+    "kyc": {
+      "title": "सत्यापित करें कि आप कौन हैं",
+      "subtitle": "हम इसे केवल आपकी पहचान सत्यापित करने के लिए उपयोग करते हैं। आपका आधार नंबर कभी संग्रहीत नहीं किया जाता।",
+      "enterAadhaar": "आधार नंबर दर्ज करें",
+      "verifyWithOtp": "OTP के साथ सत्यापित करें",
+      "aadhaarPlaceholder": "XXXX-XXXX-XXXX"
+    },
+    "liveness": {
+      "title": "त्वरित चेहरा जांच",
+      "subtitle": "हम आपके चेहरे को आपके आधार फोटो से मिलान करेंगे ताकि पुष्टि हो कि आप वास्तव में आप हैं।",
+      "instruction1": "सीधे देखें",
+      "instruction2": "धीरे से पलकें झपकाएं",
+      "instruction3": "थोड़ा बाएं मुड़ें",
+      "capture": "कैप्चर करें"
+    },
+    "platforms": {
+      "title": "अपने कार्य प्लेटफॉर्म कनेक्ट करें",
+      "subtitle": "अपनी प्रोफ़ाइल बनाने के लिए कम से कम एक कनेक्ट करें",
+      "connect": "कनेक्ट करें",
+      "connected": "कनेक्टेड",
+      "lastSynced": "अंतिम सिंक: {{time}}"
+    },
+    "complete": {
+      "title": "आप तैयार हैं!",
+      "subtitle": "आपकी GigProof पहचान तैयार है। प्लेटफॉर्म कनेक्ट करके अपना स्कोर बनाना शुरू करें।",
+      "score": "आपका स्कोर बन रहा है...",
+      "goToProfile": "मेरी प्रोफ़ाइल पर जाएं"
+    }
+  },
+  "home": {
+    "greeting": {
+      "morning": "सुप्रभात",
+      "afternoon": "नमस्ते",
+      "evening": "शुभ संध्या"
+    },
+    "scoreLabel": "GigProof स्कोर",
+    "scoreExplain": "स्कोर ब्रेकडाउन देखें",
+    "syncPlatforms": "प्लेटफॉर्म सिंक करें",
+    "requestAttestation": "प्रमाणपत्र का अनुरोध करें"
+  },
+  "identity": {
+    "credentialTypes": {
+      "income": "आय",
+      "rating": "रेटिंग",
+      "skill": "कौशल",
+      "employment": "रोजगार",
+      "identity": "पहचान",
+      "peer": "साथी"
+    },
+    "tierLabel": {
+      "gold": "गोल्ड",
+      "silver": "सिल्वर",
+      "bronze": "ब्रॉन्ज",
+      "unverified": "असत्यापित"
+    },
+    "viewOnChain": "चेन पर देखें",
+    "generateZkProof": "ZK प्रमाण उत्पन्न करें",
+    "shareCredential": "यह क्रेडेंशियल शेयर करें",
+    "revokeCredential": "क्रेडेंशियल रद्द करें"
+  },
+  "share": {
+    "heading": "नियंत्रित करें कि आपका डेटा कौन देखता है",
+    "createNewShare": "नया शेयर बनाएं",
+    "revoke": "रद्द करें",
+    "duration": {
+      "24h": "24 घंटे",
+      "7d": "7 दिन",
+      "30d": "30 दिन",
+      "custom": "कस्टम"
+    },
+    "confirmConsent": "पुष्टि करके, आप सहमत हैं कि उपरोक्त डेटा को निर्दिष्ट प्राप्तकर्ता को बताए गए समय के लिए साझा किया जाए।",
+    "confirm": "पुष्टि करें",
+    "qrCodeDescription": "यह QR किसी को भी आपकी सार्वजनिक प्रोफ़ाइल देखने की अनुमति देता है",
+    "showQr": "QR कोड दिखाएं",
+    "hideQr": "QR कोड छिपाएं"
+  },
+  "earnings": {
+    "avgMonthly": "औसत मासिक आय",
+    "bestMonth": "सर्वश्रेष्ठ महीना",
+    "growth": "आय वृद्धि",
+    "addManual": "मैनुअल रिकॉर्ड जोड़ें",
+    "export": "PDF निर्यात करें"
+  },
+  "profile": {
+    "connectedPlatforms": "कनेक्टेड प्लेटफॉर्म",
+    "disconnect": "डिस्कनेक्ट करें",
+    "syncNow": "अभी सिंक करें",
+    "requestAttestation": "प्रमाणपत्र का अनुरोध करें",
+    "changeLanguage": "भाषा बदलें",
+    "notifications": "सूचनाएं",
+    "biometricLock": "बायोमेट्रिक लॉक",
+    "exportData": "मेरा डेटा निर्यात करें",
+    "deleteAccount": "खाता हटाएं",
+    "version": "संस्करण",
+    "terms": "सेवा की शर्तें",
+    "privacy": "गोपनीयता नीति",
+    "howItWorks": "GigProof कैसे काम करता है"
+  },
+  "common": {
+    "continue": "जारी रखें",
+    "cancel": "रद्द करें",
+    "confirm": "पुष्टि करें",
+    "retry": "पुनः प्रयास करें",
+    "loading": "लोड हो रहा है...",
+    "error": "त्रुटि",
+    "success": "सफलता",
+    "yes": "हाँ",
+    "no": "नहीं"
+  },
+  "errors": {
+    "otpInvalid": "अमान्य OTP",
+    "otpExpired": "OTP समाप्त हो गया",
+    "kycFailed": "KYC सत्यापन विफल",
+    "networkError": "नेटवर्क त्रुटि",
+    "generic": "कुछ गलत हो गया"
+  }
+}

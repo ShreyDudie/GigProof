@@ -1,0 +1,134 @@
+{
+  "auth": {
+    "welcome": "Welcome to GigProof",
+    "enterPhone": "Enter your phone number",
+    "enterOtp": "Enter the 6-digit OTP",
+    "resendOtp": "Resend OTP",
+    "sendOtp": "Send OTP",
+    "verifyOtp": "Verify OTP",
+    "phonePlaceholder": "+91 9876543210",
+    "otpPlaceholder": "000000"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Your work. Your proof. Your identity.",
+      "subtitle": "Build verifiable digital credentials from your gig work to access formal financial services.",
+      "getStarted": "Get Started"
+    },
+    "kyc": {
+      "title": "Verify who you are",
+      "subtitle": "We only use this to verify your identity. Your Aadhaar number is never stored.",
+      "enterAadhaar": "Enter Aadhaar Number",
+      "verifyWithOtp": "Verify with OTP",
+      "aadhaarPlaceholder": "XXXX-XXXX-XXXX"
+    },
+    "liveness": {
+      "title": "Quick face check",
+      "subtitle": "We'll match your face to your Aadhaar photo to confirm you're really you.",
+      "instruction1": "Look straight",
+      "instruction2": "Blink slowly",
+      "instruction3": "Turn slightly left",
+      "capture": "Capture"
+    },
+    "platforms": {
+      "title": "Connect your work platforms",
+      "subtitle": "Connect at least one to build your profile",
+      "connect": "Connect",
+      "connected": "Connected",
+      "lastSynced": "Last synced: {{time}}"
+    },
+    "complete": {
+      "title": "You're all set!",
+      "subtitle": "Your GigProof identity is ready. Start building your score by connecting platforms.",
+      "score": "Building your score...",
+      "goToProfile": "Go to my profile"
+    }
+  },
+  "home": {
+    "greeting": {
+      "morning": "Good morning",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening"
+    },
+    "scoreLabel": "GigProof Score",
+    "scoreExplain": "View score breakdown",
+    "syncPlatforms": "Sync platforms",
+    "requestAttestation": "Request attestation"
+  },
+  "identity": {
+    "credentialTypes": {
+      "income": "Income",
+      "rating": "Rating",
+      "skill": "Skill",
+      "employment": "Employment",
+      "identity": "Identity",
+      "peer": "Peer"
+    },
+    "tierLabel": {
+      "gold": "Gold",
+      "silver": "Silver",
+      "bronze": "Bronze",
+      "unverified": "Unverified"
+    },
+    "viewOnChain": "View on chain",
+    "generateZkProof": "Generate ZK proof",
+    "shareCredential": "Share this credential",
+    "revokeCredential": "Revoke credential"
+  },
+  "share": {
+    "heading": "Control who sees your data",
+    "createNewShare": "Create new share",
+    "revoke": "Revoke",
+    "duration": {
+      "24h": "24 hours",
+      "7d": "7 days",
+      "30d": "30 days",
+      "custom": "Custom"
+    },
+    "confirmConsent": "By confirming, you consent to sharing the above data with the selected recipient for the stated duration.",
+    "confirm": "Confirm",
+    "qrCodeDescription": "This QR lets anyone look up your public profile",
+    "showQr": "Show QR Code",
+    "hideQr": "Hide QR Code"
+  },
+  "earnings": {
+    "avgMonthly": "Average monthly income",
+    "bestMonth": "Best month ever",
+    "growth": "Income growth",
+    "addManual": "Add manual record",
+    "export": "Export PDF"
+  },
+  "profile": {
+    "connectedPlatforms": "Connected platforms",
+    "disconnect": "Disconnect",
+    "syncNow": "Sync now",
+    "requestAttestation": "Request attestation",
+    "changeLanguage": "Change language",
+    "notifications": "Notifications",
+    "biometricLock": "Biometric lock",
+    "exportData": "Export my data",
+    "deleteAccount": "Delete account",
+    "version": "Version",
+    "terms": "Terms of service",
+    "privacy": "Privacy policy",
+    "howItWorks": "How GigProof works"
+  },
+  "common": {
+    "continue": "Continue",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "retry": "Retry",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "errors": {
+    "otpInvalid": "Invalid OTP",
+    "otpExpired": "OTP expired",
+    "kycFailed": "KYC verification failed",
+    "networkError": "Network error",
+    "generic": "Something went wrong"
+  }
+}
